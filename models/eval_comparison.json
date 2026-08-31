@@ -1,0 +1,86 @@
+{
+  "timestamp": "2026-08-31",
+  "n_episodes": 10,
+  "phase3_bc": {
+    "agent_type": "bc",
+    "n_episodes": 10,
+    "win_rate_pct": 100.0,
+    "wins": 10,
+    "draws": 0,
+    "losses": 0,
+    "mean_agent_money": 15150.0,
+    "mean_opponent_money": 13800.0,
+    "profit_advantage": 1350.0,
+    "scores_agent": [
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0,
+      15150.0
+    ],
+    "scores_opponent": [
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0
+    ]
+  },
+  "phase4_ppo": {
+    "agent_type": "ppo",
+    "n_episodes": 10,
+    "win_rate_pct": 100.0,
+    "wins": 10,
+    "draws": 0,
+    "losses": 0,
+    "mean_agent_money": 16500.0,
+    "mean_opponent_money": 13800.0,
+    "profit_advantage": 2700.0,
+    "scores_agent": [
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0,
+      16500.0
+    ],
+    "scores_opponent": [
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0,
+      13800.0
+    ]
+  },
+  "comparison": {
+    "bc_win_rate": 100.0,
+    "ppo_win_rate": 100.0,
+    "bc_mean_profit": 15150.0,
+    "ppo_mean_profit": 16500.0,
+    "profit_delta_ppo_minus_bc": 1350.0
+  },
+  "recommendation": {
+    "benchmark_passed": true,
+    "preferred_model": "Phase 4 PPO",
+    "rationale": "Phase 4 PPO achieved 100.0% win rate ($16,500.00 mean bank) vs Phase 3 BC 100.0% win rate ($15,150.00 mean bank). PPO demonstrates superior performance over BC baseline."
+  }
+}

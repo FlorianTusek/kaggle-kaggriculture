@@ -2,7 +2,7 @@
 """Local Benchmarking & Evaluation Suite for Kaggriculture.
 
 Runs head-to-head simulations across multiple 720-turn seasons to evaluate
-and compare Heuristic Baseline, Behavioral Cloning, and PPO RL agents.
+and compare Heuristic Baseline, Phase 3 Behavioral Cloning (Hybrid), and Phase 4 PPO RL agents.
 """
 
 import os
@@ -11,10 +11,10 @@ import json
 import argparse
 import numpy as np
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.env import KaggricultureEnv
+from src.env import KaggricultureEnv, ACTION_LOOKUP
 from src.agent import KaggricultureAgent
 from src.models import BehavioralCloningPolicy, PPOPolicy
 
@@ -37,10 +37,10 @@ def evaluate_agent_matchup(
     # Load policy
     if agent_type == "bc":
         policy = BehavioralCloningPolicy()
-        print(f"Loaded Behavioral Cloning Policy (model exists: {policy.is_loaded})")
+        print(f"Loaded Behavioral Cloning Policy (model loaded: {policy.is_loaded})")
     elif agent_type == "ppo":
         policy = PPOPolicy()
-        print(f"Loaded PPO RL Policy (model exists: {policy.is_loaded})")
+        print(f"Loaded PPO RL Policy (model loaded: {policy.is_loaded})")
     else:
         policy = None
         print(f"Using default random/pass baseline")
@@ -58,11 +58,9 @@ def evaluate_agent_matchup(
         while not (terminated or truncated):
             if agent_type == "bc" and policy and policy.is_loaded:
                 act_str = policy.predict_farmer_action(env.obs)
-                from src.env import ACTION_LOOKUP
                 act_idx = ACTION_LOOKUP.index(act_str) if act_str in ACTION_LOOKUP else 0
             elif agent_type == "ppo" and policy and policy.is_loaded:
                 act_str = policy.predict_action(env.obs)
-                from src.env import ACTION_LOOKUP
                 act_idx = ACTION_LOOKUP.index(act_str) if act_str in ACTION_LOOKUP else 0
             else:
                 act_idx = 0
@@ -91,8 +89,8 @@ def evaluate_agent_matchup(
     mean_opp = float(np.mean(scores_opponent))
     profit_margin = mean_agent - mean_opp
     
-    print(f"\n--- Benchmark Summary ---")
-    print(f"  Win Rate: {win_rate:.1f}% ({wins}/{n_episodes} wins, {draws} draws)")
+    print(f"\n--- Benchmark Summary for {agent_type.upper()} ---")
+    print(f"  Win Rate: {win_rate:.1f}% ({wins}/{n_episodes} wins, {draws} draws, {n_episodes - wins - draws} losses)")
     print(f"  Mean Agent Bank: ${mean_agent:,.2f}")
     print(f"  Mean Opponent Bank: ${mean_opp:,.2f}")
     print(f"  Net Profit Advantage: ${profit_margin:,.2f}")
@@ -114,14 +112,84 @@ def evaluate_agent_matchup(
     return results
 
 
+def run_full_comparative_benchmark(
+    n_episodes: int = 10,
+    output_path: str = "models/eval_comparison.json"
+) -> Dict[str, Any]:
+    """Run comparative benchmark across Baseline, Phase 3 BC, and Phase 4 PPO."""
+    print("\n=======================================================")
+    print("  PHASE 4 COMPARATIVE BENCHMARK: BC vs. PPO vs. Baseline")
+    print("=======================================================")
+    
+    bc_results = evaluate_agent_matchup(agent_type="bc", n_episodes=n_episodes)
+    ppo_results = evaluate_agent_matchup(agent_type="ppo", n_episodes=n_episodes)
+    
+    # Comparison summary
+    bc_win_rate = bc_results["win_rate_pct"]
+    ppo_win_rate = ppo_results["win_rate_pct"]
+    bc_profit = bc_results["mean_agent_money"]
+    ppo_profit = ppo_results["mean_agent_money"]
+    
+    # Decision recommendation per ROADMAP Section 4 / Phase 4
+    # "If RL agent does not consistently beat the Phase 3 baseline, skip Phase 4 submission."
+    ppo_beats_bc = (ppo_win_rate > bc_win_rate) or (ppo_profit > bc_profit and ppo_win_rate >= bc_win_rate)
+    
+    recommendation = {
+        "benchmark_passed": bool(ppo_beats_bc),
+        "preferred_model": "Phase 4 PPO" if ppo_beats_bc else "Phase 3 Hybrid BC",
+        "rationale": (
+            f"Phase 4 PPO achieved {ppo_win_rate:.1f}% win rate (${ppo_profit:,.2f} mean bank) vs "
+            f"Phase 3 BC {bc_win_rate:.1f}% win rate (${bc_profit:,.2f} mean bank). "
+            + ("PPO demonstrates superior performance over BC baseline." if ppo_beats_bc else
+               "Phase 3 Hybrid BC agent maintains superior or equivalent performance; as per ROADMAP, Phase 3 Hybrid agent remains the primary competitive submission.")
+        )
+    }
+    
+    comparison = {
+        "timestamp": "2026-08-31",
+        "n_episodes": n_episodes,
+        "phase3_bc": bc_results,
+        "phase4_ppo": ppo_results,
+        "comparison": {
+            "bc_win_rate": bc_win_rate,
+            "ppo_win_rate": ppo_win_rate,
+            "bc_mean_profit": bc_profit,
+            "ppo_mean_profit": ppo_profit,
+            "profit_delta_ppo_minus_bc": float(ppo_profit - bc_profit),
+        },
+        "recommendation": recommendation
+    }
+    
+    print("\n=======================================================")
+    print("  FINAL COMPARISON & RECOMMENDATION")
+    print("=======================================================")
+    print(f"  Phase 3 Hybrid BC: Win Rate = {bc_win_rate:.1f}% | Mean Bank = ${bc_profit:,.2f}")
+    print(f"  Phase 4 PPO RL:    Win Rate = {ppo_win_rate:.1f}% | Mean Bank = ${ppo_profit:,.2f}")
+    print(f"  Benchmark Passed:  {recommendation['benchmark_passed']}")
+    print(f"  Preferred Model:   {recommendation['preferred_model']}")
+    print(f"  Rationale:         {recommendation['rationale']}")
+    print("=======================================================")
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(comparison, f, indent=2)
+    print(f"Full comparison report saved to: {output_path}")
+    
+    return comparison
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate Kaggriculture Agents")
-    parser.add_argument("--agent", choices=["bc", "ppo", "baseline"], default="bc", help="Agent type to evaluate")
+    parser.add_argument("--mode", choices=["single", "compare"], default="compare", help="Benchmark mode")
+    parser.add_argument("--agent", choices=["bc", "ppo", "baseline"], default="bc", help="Agent type for single mode")
     parser.add_argument("--episodes", type=int, default=10, help="Number of evaluation episodes")
-    parser.add_argument("--output", default="models/eval_results.json", help="Output results file")
+    parser.add_argument("--output", default="models/eval_comparison.json", help="Output results file")
     args = parser.parse_args()
     
-    res = evaluate_agent_matchup(agent_type=args.agent, n_episodes=args.episodes)
-    with open(args.output, "w") as f:
-        json.dump(res, f, indent=2)
-    print(f"\nResults saved to {args.output}")
+    if args.mode == "compare":
+        run_full_comparative_benchmark(n_episodes=args.episodes, output_path=args.output)
+    else:
+        res = evaluate_agent_matchup(agent_type=args.agent, n_episodes=args.episodes)
+        with open(args.output, "w") as f:
+            json.dump(res, f, indent=2)
+        print(f"\nResults saved to {args.output}")
