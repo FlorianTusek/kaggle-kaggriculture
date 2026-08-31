@@ -75,6 +75,7 @@ data/*.parquet
 # Model artifacts and checkpoints
 models/*
 !models/.gitkeep
+!models/*.json
 *.pt
 *.pth
 *.onnx
