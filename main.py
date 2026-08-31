@@ -305,11 +305,72 @@ class PriceTracker:
             return max(5, base_lot // 3)
         return base_lot
 
+# --- Opponent Tracker ---
+class OpponentTracker:
+    def __init__(self):
+        self.history: List[Dict[str, Any]] = []
+        self.archetype = "UNKNOWN"
+        self.wheat_denial_detected = False
+
+    def update(self, obs: Dict[str, Any]) -> None:
+        player_idx = obs.get("player", 0)
+        opp_idx = 1 - player_idx
+        farms = obs.get("farms", [])
+        if len(farms) <= opp_idx:
+            return
+
+        opp_farm = farms[opp_idx]
+        market = obs.get("market", {})
+        wheat_price = market.get("prices", {}).get("WHEAT", 25)
+        wheat_inventory = market.get("inventory", {}).get("WHEAT", 10000)
+
+        snapshot = {
+            "turn": obs.get("step", 0),
+            "money": opp_farm.get("money", 3000),
+            "quadrants": len(opp_farm.get("unlocked_quadrants", ["NW"])),
+            "hires": opp_farm.get("hires_today", 0),
+            "wheat_inventory": wheat_inventory,
+            "wheat_price": wheat_price,
+        }
+        self.history.append(snapshot)
+
+        if len(self.history) >= 2:
+            initial_wheat = self.history[0]["wheat_inventory"]
+            current_wheat = snapshot["wheat_inventory"]
+            if snapshot["turn"] <= 48 and (initial_wheat - current_wheat >= 15 or snapshot["wheat_price"] > 35):
+                self.wheat_denial_detected = True
+
+        if self.wheat_denial_detected:
+            self.archetype = "WHEAT_DENIER"
+        elif snapshot["quadrants"] > 1 or snapshot["hires"] >= 3:
+            self.archetype = "AGGRESSIVE_EXPANDER"
+        else:
+            self.archetype = "STANDARD"
+
+    def is_feed5_first_needed(self, turn: int) -> bool:
+        return turn == 0
+
+    def get_counter_strategy_orders(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[List[Any]]:
+        turn = obs.get("step", 0)
+        money = me.get("money", 0)
+        seeds = priv.get("seeds", {})
+        shed = priv.get("shed", {})
+        wheat_stock = seeds.get("WHEAT", 0) + shed.get("WHEAT", 0)
+
+        orders = []
+        if turn == 0 and wheat_stock < 5 and money >= 50:
+            orders.append(["BUY_SEED", "WHEAT", 5])
+        elif self.wheat_denial_detected and wheat_stock < 10 and money >= 100:
+            orders.append(["BUY_SEED", "WHEAT", 5])
+
+        return orders
+
 # --- Market Optimizer ---
 class MarketOptimizer:
     def __init__(self, policy: Optional[Dict[str, Any]] = None):
         self.policy = policy if policy is not None else {}
         self.price_tracker = PriceTracker(history_len=48)
+        self.opponent_tracker = OpponentTracker()
 
     def plan_market_orders(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[List[Any]]:
         day = obs.get("day", 0)
@@ -322,7 +383,9 @@ class MarketOptimizer:
         phase = get_season_phase(day, self.policy)
 
         self.price_tracker.update(prices)
+        self.opponent_tracker.update(obs)
 
+        counter_orders = self.opponent_tracker.get_counter_strategy_orders(obs, me, priv)
         sell_orders, buy_orders, hire_orders = [], [], []
 
         # 1. SELL Orders (reordered early for liquidity)
@@ -372,7 +435,7 @@ class MarketOptimizer:
                     buy_orders.append(["BUY_SEED", crop, batch])
                     money -= seed_cost
 
-        combined = sell_orders + hire_orders + buy_orders
+        combined = counter_orders + sell_orders + hire_orders + buy_orders
         return combined[:MAX_MARKET_ORDERS]
 
 # --- Main Agent Controller & Entrypoint ---

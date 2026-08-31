@@ -98,6 +98,25 @@ The environment is **punishingly unforgiving**:
 2. **Train with self-play** or against the heuristic baseline.
 3. **Combine with behavioral cloning** (pre-train policy, then fine-tune with RL).
 
+### Phase 5: Advanced Search & Meta-Game (Week 4+)
+**Why**: Once PPO and Behavioral Cloning plateau, the highest echelon of Kaggle agents rely on search algorithms (like MCTS) augmented by neural networks, and opponent modeling.
+
+**Tasks**:
+1. **Monte Carlo Tree Search (MCTS) Hybrid**:
+   - Implement MCTS for the agent's decision-making process.
+   - Use the Phase 4 PPO policy network as a prior to prune the MCTS search tree, avoiding exhaustive search.
+   - Use a trained value network (instead of full random rollouts) to evaluate leaf nodes quickly.
+2. **Opponent Modeling & Meta-Agents**:
+   - Identify opponent archetypes (e.g., aggressive expander, market dumper).
+   - **Wheat Denial Tactics**: Be aware of opponents buying out early wheat (14-19 units) to starve your livestock. Implement the **"Feed5-first" strategy** (buying 5 wheat at step 0) as a meta-counter to secure early feed.
+   - Train a meta-layer that monitors the opponent's strategy during the game and switches between sub-policies to counter them.
+3. **Strategy Ensembling**:
+   - Combine multiple policies (e.g., heuristic safety layer + MCTS for market + PPO for expansion) rather than relying on a single monolithic model.
+   - Average MCTS visit counts across different models to make robust decisions.
+4. **Data Augmentation & Local Validation**:
+   - Build a highly stable local cross-validation environment (Elo-style simulator) to test against a battery of diverse agents.
+   - Augment training data by swapping roles or mirroring farm states to prevent overfitting.
+
 ---
 
 ## 5. Feature Engineering Ideas

@@ -4,6 +4,7 @@
 Handles market transaction optimization and price dynamics:
 - Price History & Momentum Tracking (PriceTracker).
 - Dynamic Sell-Timing Heuristics (scaling sell lot size based on price momentum, peak windows, and decay).
+- Opponent Archetype Tracking & Feed5-first Counter-Strategy.
 - Order Queue Reordering (placing SELL orders before BUY/HIRE orders to generate immediate liquidity).
 - Price floor enforcement & market order limit (max 10 orders per turn).
 """
@@ -11,6 +12,7 @@ Handles market transaction optimization and price dynamics:
 from typing import Dict, List, Any, Tuple, Optional
 from src.constants import MAX_MARKET_ORDERS_PER_TURN, CROPS, PRODUCTS
 from src.strategy import calculate_hire_cost, get_season_phase, compute_demand_responsive_shares
+from src.opponent import OpponentTracker
 
 class PriceTracker:
     """Tracks price history across turns and calculates price trends, momentum, and peak windows."""
@@ -82,9 +84,11 @@ class MarketOptimizer:
     def __init__(self, policy: Optional[Dict[str, Any]] = None):
         self.policy = policy if policy is not None else {}
         self.price_tracker = PriceTracker(history_len=48)
+        self.opponent_tracker = OpponentTracker()
 
     def plan_market_orders(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[List[Any]]:
         """Generate an optimized list of up to 10 market orders for the current turn."""
+        step = obs.get("step", 0)
         day = obs.get("day", 0)
         hour = obs.get("hour", 0)
         money = me.get("money", 0)
@@ -94,9 +98,11 @@ class MarketOptimizer:
         prices = obs.get("market", {}).get("prices", {})
         phase = get_season_phase(day, self.policy)
 
-        # Update price history tracker
+        # Update price history and opponent tracker
         self.price_tracker.update(prices)
+        self.opponent_tracker.update(obs)
 
+        counter_orders = self.opponent_tracker.get_counter_strategy_orders(obs, me, priv)
         sell_orders = []
         buy_orders = []
         hire_orders = []
@@ -151,6 +157,6 @@ class MarketOptimizer:
                     buy_orders.append(["BUY_SEED", crop, batch])
                     money -= seed_cost
 
-        # Reorder queue: SELL first (to generate liquidity), then HIRE, then BUY_SEED
-        combined_orders = sell_orders + hire_orders + buy_orders
+        # Reorder queue: Counter orders (Feed5-first) first, then SELL, HIRE, BUY_SEED
+        combined_orders = counter_orders + sell_orders + hire_orders + buy_orders
         return combined_orders[:MAX_MARKET_ORDERS_PER_TURN]

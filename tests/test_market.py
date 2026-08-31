@@ -26,7 +26,8 @@ class TestMarketAndCashManagement(unittest.TestCase):
     def test_buy_seed_cash_constraint(self):
         """Ensure agent does not buy seeds if money is below seed cost batch."""
         obs = {
-            "day": 1,
+            "step": 5,
+            "day": 0,
             "hour": 5,
             "market": {"prices": {"CARROT": 35, "WHEAT": 25}},
         }
