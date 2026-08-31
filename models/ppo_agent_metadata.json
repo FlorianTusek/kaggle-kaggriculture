@@ -1,0 +1,43 @@
+{
+  "algorithm": "PPO (Proximal Policy Optimization)",
+  "framework": "stable-baselines3",
+  "policy": "MlpPolicy",
+  "total_timesteps": 15000,
+  "n_features": 49,
+  "n_actions": 17,
+  "action_lookup": [
+    "PASS",
+    "NORTH",
+    "SOUTH",
+    "EAST",
+    "WEST",
+    "WATER",
+    "HARVEST",
+    "FEED",
+    "CARE",
+    "COLLECT_FERTILIZER",
+    "DIG",
+    "DROP",
+    "PLANT",
+    "FERTILIZE",
+    "PLACE",
+    "BUILD_PASTURE",
+    "PICKUP"
+  ],
+  "hyperparameters": {
+    "learning_rate": 0.0003,
+    "n_steps": 512,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.01
+  },
+  "evaluation": {
+    "mean_reward": 13500.0,
+    "std_reward": 0.0,
+    "n_eval_episodes": 5
+  },
+  "model_file": "models/ppo_agent.zip"
+}

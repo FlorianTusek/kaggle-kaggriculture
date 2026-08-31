@@ -115,3 +115,55 @@ class BaselineModel:
             "final_reward": final_reward,
             "success": final_reward > 3000,
         }
+
+
+class PPOPolicy:
+    """PPO Reinforcement Learning Policy Wrapper."""
+
+    def __init__(self, model_path: Optional[str] = None):
+        if model_path is None:
+            model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "ppo_agent.zip")
+        self.model_path = model_path
+        self.model = None
+        self.is_loaded = False
+        
+        from src.env import ACTION_LOOKUP
+        self.action_lookup = ACTION_LOOKUP
+        self.feature_columns = FEATURE_COLUMNS
+        
+        if os.path.exists(model_path):
+            self.load_model(model_path)
+
+    def load_model(self, model_path: str) -> None:
+        """Load PPO model from zip file."""
+        try:
+            from stable_baselines3 import PPO
+            self.model = PPO.load(model_path)
+            self.is_loaded = True
+        except Exception as e:
+            self.is_loaded = False
+
+    def extract_features(self, obs: Dict[str, Any], player_idx: Optional[int] = None) -> np.ndarray:
+        """Extract state feature vector from game observation."""
+        if player_idx is None:
+            player_idx = obs.get("player", 0)
+        feat_dict = extract_state_features(obs, player_idx)
+        vec = [float(feat_dict.get(col, 0)) for col in self.feature_columns]
+        return np.array(vec, dtype=np.float32)
+
+    def predict_action(self, obs: Dict[str, Any], deterministic: bool = True) -> str:
+        """Predict the next worker action using PPO policy."""
+        if not self.is_loaded or self.model is None:
+            return "PASS"
+        vec = self.extract_features(obs)
+        action_idx, _ = self.model.predict(vec, deterministic=deterministic)
+        idx = int(action_idx) if np.ndim(action_idx) == 0 else int(action_idx[0])
+        return self.action_lookup[idx] if 0 <= idx < len(self.action_lookup) else "PASS"
+
+    def advise(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        """Advise heuristic agents with RL policy suggestions."""
+        return {
+            "recommended_farmer_action": self.predict_action(obs),
+            "policy_type": "PPO_RL"
+        }
+
