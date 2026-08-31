@@ -66,6 +66,8 @@ data/processed/*
 !data/processed/.gitkeep
 data/external/*
 !data/external/.gitkeep
+data/replays/*
+!data/replays/.gitkeep
 data/*.csv
 data/*.zip
 data/*.parquet
