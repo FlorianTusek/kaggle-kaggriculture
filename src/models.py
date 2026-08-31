@@ -1,20 +1,25 @@
-from typing import Tuple, List, Any
-import numpy as np
-from sklearn.model_selection import KFold
+# SPDX-License-Identifier: MIT
+"""Model evaluation and policy benchmarking for Kaggriculture."""
 
-def train_cv(model_cls: Any, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> Tuple[List[Any], np.ndarray]:
-    """Train a model using K-Fold cross validation and return models + out-of-fold predictions."""
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    oof_preds = np.zeros(len(X))
-    models = []
-    
-    for fold, (train_idx, val_idx) in enumerate(kf.split(X, y)):
-        X_train, y_train = X[train_idx], y[train_idx]
-        X_val, y_val = X[val_idx], y[val_idx]
-        
-        model = model_cls()
-        model.fit(X_train, y_train)
-        oof_preds[val_idx] = model.predict(X_val)
-        models.append(model)
-        
-    return models, oof_preds
+from typing import Dict, Any, List, Optional
+import numpy as np
+from src.agent import KaggricultureAgent, DEFAULT_POLICY
+
+class BaselineModel:
+    """Wrapper around baseline heuristic agent policy."""
+
+    def __init__(self, policy: Optional[Dict[str, Any]] = None):
+        self.policy = policy if policy is not None else DEFAULT_POLICY
+        self.agent = KaggricultureAgent(self.policy)
+
+    def predict(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        """Return action dict for a given observation."""
+        return self.agent.act(obs)
+
+    def evaluate_summary(self, final_reward: float) -> Dict[str, Any]:
+        """Generate evaluation summary from an episode run."""
+        return {
+            "policy": self.policy,
+            "final_reward": final_reward,
+            "success": final_reward > 3000,
+        }
