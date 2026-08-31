@@ -421,8 +421,12 @@ class KaggricultureAgent:
         self.bc_policy = None
         if self.policy.get("use_ml_policy", True):
             try:
-                from src.models import BehavioralCloningPolicy
-                self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
+                from src.models import PPOPolicy, BehavioralCloningPolicy
+                ppo = PPOPolicy()
+                if ppo.is_loaded:
+                    self.bc_policy = ppo
+                else:
+                    self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
             except Exception:
                 self.bc_policy = None
 

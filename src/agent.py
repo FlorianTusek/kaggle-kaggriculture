@@ -72,11 +72,16 @@ class KaggricultureAgent:
         self.strategy_planner = StrategyPlanner(self.policy)
         self.market_optimizer = MarketOptimizer(self.policy)
         
-        # Initialize Behavioral Cloning Policy if enabled
+        # Initialize RL PPO Policy or Behavioral Cloning Policy
         self.bc_policy = None
         if self.policy.get("use_ml_policy", True):
             try:
-                self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
+                from src.models import PPOPolicy, BehavioralCloningPolicy
+                ppo = PPOPolicy()
+                if ppo.is_loaded:
+                    self.bc_policy = ppo
+                else:
+                    self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
             except Exception as e:
                 self.bc_policy = None
 
