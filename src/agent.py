@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
-"""Kaggriculture Baseline Agent Policy Implementation."""
+"""Kaggriculture Agent Policy Implementation with ML Behavioral Cloning Policy Integration."""
 
+import os
 import math
 from typing import Dict, List, Any, Tuple, Optional
 
@@ -8,6 +9,7 @@ from src.constants import BOARD_SIZE, HALF_BOARD, TURNS_PER_DAY, SHED_CAPACITY, 
 from src.safety import collect_safety_jobs, SafetyLayer
 from src.strategy import StrategyPlanner, _open_tiles, _shed_tile, _dist, _step_toward
 from src.market import MarketOptimizer
+from src.models import BehavioralCloningPolicy
 
 DEFAULT_POLICY = {
     'hands': 4,
@@ -22,9 +24,10 @@ DEFAULT_POLICY = {
     'plant_until_day': 25,
     'liquidate_from_day': 27,
     'carry': 6,
+    'use_ml_policy': True,
 }
 
-def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], jobs: List[Dict[str, Any]]) -> List[List[str]]:
+def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], jobs: List[Dict[str, Any]], ml_advice: Optional[Dict[str, Any]] = None) -> List[List[str]]:
     positions = [me["farmer"]] + me.get("hands", [])
     n = len(positions)
     ops = [["PASS"] for _ in range(n)]
@@ -45,7 +48,7 @@ def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str
         busy[i] = True
         ops[i] = job["op"] if d == 0 else _step_toward(positions[i], job["pos"])
 
-    # Idle workers drop inventory at shed if adjacent
+    # Idle workers drop inventory at shed if adjacent, or execute ML policy recommendation
     sx, sy = _shed_tile(tiles)
     for i in range(n):
         if not busy[i]:
@@ -53,22 +56,42 @@ def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str
                 ops[i] = ["DROP"]
             elif obs.get("hour", 0) == TURNS_PER_DAY - 1:
                 ops[i] = _step_toward(positions[i], (sx, sy))
+            elif ml_advice and i == 0 and ml_advice.get("recommended_farmer_action"):
+                ml_act = ml_advice["recommended_farmer_action"]
+                if ml_act in ("NORTH", "SOUTH", "EAST", "WEST", "DROP", "DIG", "HARVEST", "WATER"):
+                    ops[i] = [ml_act]
 
     return ops
 
 class KaggricultureAgent:
-    """Modular Kaggriculture Baseline Agent leveraging SafetyLayer, StrategyPlanner, and MarketOptimizer."""
+    """Modular Kaggriculture Baseline Agent leveraging SafetyLayer, StrategyPlanner, MarketOptimizer, and BehavioralCloningPolicy."""
 
-    def __init__(self, policy: Optional[Dict[str, Any]] = None):
+    def __init__(self, policy: Optional[Dict[str, Any]] = None, model_path: Optional[str] = None):
         self.policy = policy if policy is not None else DEFAULT_POLICY
         self.safety_layer = SafetyLayer(self.policy)
         self.strategy_planner = StrategyPlanner(self.policy)
         self.market_optimizer = MarketOptimizer(self.policy)
+        
+        # Initialize Behavioral Cloning Policy if enabled
+        self.bc_policy = None
+        if self.policy.get("use_ml_policy", True):
+            try:
+                self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
+            except Exception as e:
+                self.bc_policy = None
 
     def act(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         me = obs["farms"][obs["player"]]
         priv = obs["private"]
         tiles = me["tiles"]
+
+        # 0. Query ML policy advice if available
+        ml_advice = None
+        if self.bc_policy is not None and self.bc_policy.is_loaded:
+            try:
+                ml_advice = self.bc_policy.advise(obs)
+            except Exception:
+                ml_advice = None
 
         # 1. Collect Safety Layer jobs (highest priority)
         safety_jobs = self.safety_layer.get_jobs(obs, me, priv)
@@ -79,8 +102,8 @@ class KaggricultureAgent:
 
         all_jobs = safety_jobs + plant_jobs
 
-        # 3. Assign worker actions
-        worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs)
+        # 3. Assign worker actions (augmented by ML policy for idle workers)
+        worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs, ml_advice=ml_advice)
 
         # 4. Plan optimized market orders
         market_orders = self.market_optimizer.plan_market_orders(obs, me, priv)

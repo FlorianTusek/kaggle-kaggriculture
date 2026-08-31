@@ -376,7 +376,7 @@ class MarketOptimizer:
         return combined[:MAX_MARKET_ORDERS]
 
 # --- Main Agent Controller & Entrypoint ---
-def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], jobs: List[Dict[str, Any]]) -> List[List[str]]:
+def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], jobs: List[Dict[str, Any]], ml_advice: Optional[Dict[str, Any]] = None) -> List[List[str]]:
     positions = [me["farmer"]] + me.get("hands", [])
     n = len(positions)
     ops = [["PASS"] for _ in range(n)]
@@ -404,27 +404,46 @@ def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str
                 ops[i] = ["DROP"]
             elif obs.get("hour", 0) == TURNS_PER_DAY - 1:
                 ops[i] = _step_toward(positions[i], (sx, sy))
+            elif ml_advice and i == 0 and ml_advice.get("recommended_farmer_action"):
+                ml_act = ml_advice["recommended_farmer_action"]
+                if ml_act in ("NORTH", "SOUTH", "EAST", "WEST", "DROP", "DIG", "HARVEST", "WATER"):
+                    ops[i] = [ml_act]
 
     return ops
 
 class KaggricultureAgent:
-    def __init__(self, policy: Optional[Dict[str, Any]] = None):
+    def __init__(self, policy: Optional[Dict[str, Any]] = None, model_path: Optional[str] = None):
         self.policy = policy if policy is not None else DEFAULT_POLICY
         self.safety_layer = SafetyLayer(self.policy)
         self.strategy_planner = StrategyPlanner(self.policy)
         self.market_optimizer = MarketOptimizer(self.policy)
+        
+        self.bc_policy = None
+        if self.policy.get("use_ml_policy", True):
+            try:
+                from src.models import BehavioralCloningPolicy
+                self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
+            except Exception:
+                self.bc_policy = None
 
     def act(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         me = obs["farms"][obs["player"]]
         priv = obs["private"]
         tiles = me["tiles"]
 
+        ml_advice = None
+        if self.bc_policy is not None and self.bc_policy.is_loaded:
+            try:
+                ml_advice = self.bc_policy.advise(obs)
+            except Exception:
+                ml_advice = None
+
         safety_jobs = self.safety_layer.get_jobs(obs, me, priv)
         free_tiles = _open_tiles(tiles)
         plant_jobs = self.strategy_planner.plan_planting_jobs(obs, me, priv, free_tiles)
 
         all_jobs = safety_jobs + plant_jobs
-        worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs)
+        worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs, ml_advice=ml_advice)
         market_orders = self.market_optimizer.plan_market_orders(obs, me, priv)
 
         return {
