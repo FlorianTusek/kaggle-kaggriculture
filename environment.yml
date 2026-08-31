@@ -1,0 +1,22 @@
+name: kaggle-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - scikit-learn
+  - lightgbm
+  - xgboost
+  - catboost
+  - pytorch
+  - matplotlib
+  - seaborn
+  - jupyterlab
+  - tqdm
+  - optuna
+  - pyarrow
+  - pip
+  - pip:
+    - kaggle
