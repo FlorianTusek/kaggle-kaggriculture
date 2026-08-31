@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Kaggriculture Self-Contained Phase 1 Baseline Competition Agent."""
+"""Kaggriculture Self-Contained Phase 2 Competition Agent."""
 
 import math
 from typing import Dict, List, Any, Tuple, Optional
@@ -219,10 +219,58 @@ class StrategyPlanner:
             plant_jobs.append({"pos": pos, "op": ["PLANT", crop], "need": None, "priority": 9})
         return plant_jobs
 
+# --- Price Tracker ---
+class PriceTracker:
+    def __init__(self, history_len: int = 48):
+        self.history_len = history_len
+        self.price_history: Dict[str, List[float]] = {}
+
+    def update(self, current_prices: Dict[str, float]) -> None:
+        for prod, price in current_prices.items():
+            if prod not in self.price_history:
+                self.price_history[prod] = []
+            self.price_history[prod].append(float(price))
+            if len(self.price_history[prod]) > self.history_len:
+                self.price_history[prod].pop(0)
+
+    def get_moving_average(self, product: str, window: int = 12) -> float:
+        hist = self.price_history.get(product, [])
+        if not hist:
+            return 0.0
+        sample = hist[-window:]
+        return sum(sample) / len(sample)
+
+    def get_price_momentum(self, product: str, window: int = 6) -> float:
+        hist = self.price_history.get(product, [])
+        if len(hist) < 2:
+            return 0.0
+        sample = hist[-window:]
+        return sample[-1] - sample[0]
+
+    def is_price_peak(self, product: str, current_price: float) -> bool:
+        hist = self.price_history.get(product, [])
+        if not hist:
+            return True
+        max_recent = max(hist)
+        return current_price >= max_recent * 0.95
+
+    def get_dynamic_lot_size(self, product: str, current_price: float, base_lot: int = 15, floor_price: float = 0.0) -> int:
+        if current_price < floor_price:
+            return 0
+        momentum = self.get_price_momentum(product)
+        if momentum > 1.0:
+            return max(5, base_lot // 2)
+        if self.is_price_peak(product, current_price):
+            return base_lot
+        if momentum < -1.0:
+            return max(5, base_lot // 3)
+        return base_lot
+
 # --- Market Optimizer ---
 class MarketOptimizer:
     def __init__(self, policy: Optional[Dict[str, Any]] = None):
         self.policy = policy if policy is not None else {}
+        self.price_tracker = PriceTracker(history_len=48)
 
     def plan_market_orders(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[List[Any]]:
         day = obs.get("day", 0)
@@ -233,6 +281,8 @@ class MarketOptimizer:
         shed = priv.get("shed", {})
         prices = obs.get("market", {}).get("prices", {})
         phase = get_season_phase(day, self.policy)
+
+        self.price_tracker.update(prices)
 
         sell_orders, buy_orders, hire_orders = [], [], []
 
@@ -247,10 +297,16 @@ class MarketOptimizer:
                 continue
             cur_price = prices.get(product, 0)
             floor = floors.get(product, 0)
-            if phase["liquidating"] or cur_price >= floor:
+            if phase["liquidating"]:
                 max_lot = sell_lots.get(product, 20)
                 qty = min(in_shed, max_lot)
                 sell_orders.append(["SELL", product, qty])
+            elif cur_price >= floor:
+                base_lot = sell_lots.get(product, 15)
+                dynamic_lot = self.price_tracker.get_dynamic_lot_size(product, cur_price, base_lot=base_lot, floor_price=floor)
+                if dynamic_lot > 0:
+                    qty = min(in_shed, dynamic_lot)
+                    sell_orders.append(["SELL", product, qty])
 
         # 2. HIRE Orders
         if hour == 0:
