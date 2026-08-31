@@ -181,6 +181,40 @@ class SafetyLayer:
     def get_jobs(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[Dict[str, Any]]:
         return collect_safety_jobs(obs, me, priv, self.policy)
 
+TOWN_SHOP_DEMAND_BOOST = {
+    "Bakery": {"WHEAT": 1.3},
+    "Pizza Shop": {"WHEAT": 1.2, "TOMATO": 1.5},
+    "Brunch Spot": {"WHEAT": 1.2, "STRAWBERRY": 1.8},
+    "Pet Cafe": {"CARROT": 2.0},
+    "Smoothie Shop": {"STRAWBERRY": 1.8},
+    "Farmers Market": {"WHEAT": 1.2, "CARROT": 1.4, "TOMATO": 1.4, "STRAWBERRY": 1.4},
+}
+
+def compute_demand_responsive_shares(obs: Dict[str, Any], prices: Dict[str, float], base_shares: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    if base_shares is None:
+        base_shares = {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3}
+
+    scores = {}
+    unlocked_shops = obs.get("town", {}).get("unlocked_shops", [])
+
+    for crop, base_weight in base_shares.items():
+        base_price = CROPS.get(crop, {}).get("base_price", 30)
+        current_price = prices.get(crop, base_price)
+        price_mult = max(0.5, current_price / max(1.0, base_price))
+
+        town_mult = 1.0
+        for shop in unlocked_shops:
+            if shop in TOWN_SHOP_DEMAND_BOOST and crop in TOWN_SHOP_DEMAND_BOOST[shop]:
+                town_mult *= TOWN_SHOP_DEMAND_BOOST[shop][crop]
+
+        scores[crop] = base_weight * price_mult * town_mult
+
+    total_score = sum(scores.values())
+    if total_score <= 0:
+        return base_shares
+
+    return {crop: score / total_score for crop, score in scores.items()}
+
 # --- Strategy Planner ---
 class StrategyPlanner:
     def __init__(self, policy: Optional[Dict[str, Any]] = None):
@@ -204,7 +238,12 @@ class StrategyPlanner:
         phase = get_season_phase(day, self.policy)
         if not phase["planting"] or not free_tiles:
             return []
-        crops_ordered = self.policy.get("crops", ["CARROT", "TOMATO", "WHEAT"])
+        
+        base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+        prices = obs.get("market", {}).get("prices", {})
+        dynamic_shares = compute_demand_responsive_shares(obs, prices, base_shares)
+        crops_ordered = sorted(dynamic_shares.keys(), key=lambda c: dynamic_shares[c], reverse=True)
+
         available_seeds = []
         for crop in crops_ordered:
             cnt = seeds.get(crop, 0)
@@ -320,13 +359,14 @@ class MarketOptimizer:
         if phase["planting"]:
             stock_target = self.policy.get("seed_stock", 12)
             batch = self.policy.get("seed_batch", 6)
-            crop_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+            base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+            crop_shares = compute_demand_responsive_shares(obs, prices, base_shares)
 
             for crop, share in crop_shares.items():
                 if crop not in CROPS:
                     continue
                 current_stock = seeds.get(crop, 0)
-                desired_stock = int(stock_target * share)
+                desired_stock = max(2, int(stock_target * share))
                 seed_cost = CROPS[crop]["seed"] * batch
                 if current_stock < desired_stock and money >= seed_cost:
                     buy_orders.append(["BUY_SEED", crop, batch])

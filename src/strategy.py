@@ -4,7 +4,7 @@
 Manages high-level farm decisions:
 - Fibonacci labor hiring calculation.
 - Land expansion evaluation (unlocking NE, SW, SE quadrants when capital reserves allow).
-- Crop selection and planting schedule planning.
+- Demand-responsive crop selection (balancing crop mix based on market price signals and town shop unlocks).
 - Season lifecycle gating (investing, planting, liquidation phases).
 """
 
@@ -13,6 +13,15 @@ from src.constants import BOARD_SIZE, HALF_BOARD, CROPS, LAND_PRICES, TOTAL_DAYS
 
 MOVE_OP = {(0, -1): "NORTH", (0, 1): "SOUTH", (1, 0): "EAST", (-1, 0): "WEST"}
 SHED_TILES = [(HALF_BOARD - 1, HALF_BOARD - 1), (HALF_BOARD, HALF_BOARD - 1), (HALF_BOARD - 1, HALF_BOARD), (HALF_BOARD, HALF_BOARD)]
+
+TOWN_SHOP_DEMAND_BOOST = {
+    "Bakery": {"WHEAT": 1.3},
+    "Pizza Shop": {"WHEAT": 1.2, "TOMATO": 1.5},
+    "Brunch Spot": {"WHEAT": 1.2, "STRAWBERRY": 1.8},
+    "Pet Cafe": {"CARROT": 2.0},
+    "Smoothie Shop": {"STRAWBERRY": 1.8},
+    "Farmers Market": {"WHEAT": 1.2, "CARROT": 1.4, "TOMATO": 1.4, "STRAWBERRY": 1.4},
+}
 
 def fibonacci(n: int) -> int:
     """Return the n-th Fibonacci number (1, 1, 2, 3, 5, 8, 13, 21...)."""
@@ -37,6 +46,36 @@ def get_season_phase(day: int, policy: Dict[str, Any]) -> Dict[str, bool]:
         "planting": day <= policy.get("plant_until_day", 25),
         "liquidating": day >= policy.get("liquidate_from_day", 27),
     }
+
+def compute_demand_responsive_shares(obs: Dict[str, Any], prices: Dict[str, float], base_shares: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    """Dynamically adjust crop planting shares based on market price signals and unlocked town shop demand."""
+    if base_shares is None:
+        base_shares = {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3}
+
+    scores = {}
+    unlocked_shops = obs.get("town", {}).get("unlocked_shops", [])
+
+    for crop, base_weight in base_shares.items():
+        base_price = CROPS.get(crop, {}).get("base_price", 30)
+        current_price = prices.get(crop, base_price)
+
+        # Price multiplier relative to base price
+        price_mult = max(0.5, current_price / max(1.0, base_price))
+
+        # Town shop demand multiplier
+        town_mult = 1.0
+        for shop in unlocked_shops:
+            if shop in TOWN_SHOP_DEMAND_BOOST and crop in TOWN_SHOP_DEMAND_BOOST[shop]:
+                town_mult *= TOWN_SHOP_DEMAND_BOOST[shop][crop]
+
+        scores[crop] = base_weight * price_mult * town_mult
+
+    # Normalize shares to sum to 1.0
+    total_score = sum(scores.values())
+    if total_score <= 0:
+        return base_shares
+
+    return {crop: score / total_score for crop, score in scores.items()}
 
 def _quadrant(x: int, y: int) -> str:
     return ("N" if y < HALF_BOARD else "S") + ("W" if x < HALF_BOARD else "E")
@@ -111,7 +150,7 @@ class StrategyPlanner:
         return None
 
     def plan_planting_jobs(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], free_tiles: List[Tuple[int, int]]) -> List[Dict[str, Any]]:
-        """Generate planting jobs for available free tiles."""
+        """Generate planting jobs for available free tiles using demand-responsive shares."""
         day = obs.get("day", 0)
         seeds = priv.get("seeds", {})
         phase = get_season_phase(day, self.policy)
@@ -119,8 +158,14 @@ class StrategyPlanner:
         if not phase["planting"] or not free_tiles:
             return []
 
-        crop_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
-        crops_ordered = self.policy.get("crops", ["CARROT", "TOMATO", "WHEAT"])
+        base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+        prices = obs.get("market", {}).get("prices", {})
+        
+        # Calculate dynamic demand-responsive shares
+        dynamic_shares = compute_demand_responsive_shares(obs, prices, base_shares)
+        
+        # Sort crops by dynamic share score
+        crops_ordered = sorted(dynamic_shares.keys(), key=lambda c: dynamic_shares[c], reverse=True)
 
         available_seeds = []
         for crop in crops_ordered:

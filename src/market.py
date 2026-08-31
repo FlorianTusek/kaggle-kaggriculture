@@ -10,7 +10,7 @@ Handles market transaction optimization and price dynamics:
 
 from typing import Dict, List, Any, Tuple, Optional
 from src.constants import MAX_MARKET_ORDERS_PER_TURN, CROPS, PRODUCTS
-from src.strategy import calculate_hire_cost, get_season_phase
+from src.strategy import calculate_hire_cost, get_season_phase, compute_demand_responsive_shares
 
 class PriceTracker:
     """Tracks price history across turns and calculates price trends, momentum, and peak windows."""
@@ -134,17 +134,18 @@ class MarketOptimizer:
                 for _ in range(needed):
                     hire_orders.append(["HIRE"])
 
-        # 3. BUY_SEED Orders
+        # 3. BUY_SEED Orders using demand-responsive crop shares
         if phase["planting"]:
             stock_target = self.policy.get("seed_stock", 12)
             batch = self.policy.get("seed_batch", 6)
-            crop_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+            base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+            crop_shares = compute_demand_responsive_shares(obs, prices, base_shares)
 
             for crop, share in crop_shares.items():
                 if crop not in CROPS:
                     continue
                 current_stock = seeds.get(crop, 0)
-                desired_stock = int(stock_target * share)
+                desired_stock = max(2, int(stock_target * share))
                 seed_cost = CROPS[crop]["seed"] * batch
                 if current_stock < desired_stock and money >= seed_cost:
                     buy_orders.append(["BUY_SEED", crop, batch])
