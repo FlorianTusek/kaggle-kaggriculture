@@ -84,30 +84,18 @@ def _ready_to_harvest(tile: Dict[str, Any], day: int, policy: Dict[str, Any]) ->
         return True
     return tile.get("yield_units", 0) >= 3
 
+from src.safety import collect_safety_jobs
+
 def _collect_jobs(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]):
     day = obs["day"]
     tiles = me["tiles"]
     seeds = priv["seeds"]
-    
-    water, harvest, plant, dig = [], [], [], []
 
-    for y in range(BOARD):
-        for x in range(BOARD):
-            tile = tiles[y][x]
-            if not isinstance(tile, dict):
-                continue
-            kind = tile.get("kind")
-            pos = (x, y)
+    # 1. Collect prioritized safety jobs first (water, feed, harvest, care, dig)
+    safety_jobs = collect_safety_jobs(obs, me, priv, policy)
 
-            if kind == "WEED":
-                dig.append({"pos": pos, "op": ["DIG"], "need": None})
-            elif kind == "PLANT":
-                if _ready_to_harvest(tile, day, policy):
-                    harvest.append({"pos": pos, "op": ["HARVEST"], "need": None})
-                elif not tile.get("watered_today", False):
-                    water.append({"pos": pos, "op": ["WATER"], "need": None})
-
-    # Plant jobs
+    # 2. Collect planting jobs if allowed
+    plant_jobs = []
     planting_allowed = day <= policy.get("plant_until_day", 25)
     if planting_allowed:
         free_tiles = _open_tiles(tiles)
@@ -121,9 +109,9 @@ def _collect_jobs(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any
             if not available_seeds:
                 break
             crop = available_seeds.pop(0)
-            plant.append({"pos": pos, "op": ["PLANT", crop], "need": None})
+            plant_jobs.append({"pos": pos, "op": ["PLANT", crop], "need": None, "priority": 9})
 
-    jobs = water + harvest + plant + dig
+    jobs = safety_jobs + plant_jobs
     return jobs, 0
 
 def _plan_market(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], animal_count: int) -> List[List[Any]]:
