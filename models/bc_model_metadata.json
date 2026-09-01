@@ -1,6 +1,6 @@
 {
   "model_type": "LightGBM Multi-Head Behavioral Cloning Policy",
-  "num_training_samples": 250000,
+  "num_training_samples": 300000,
   "num_features": 49,
   "feature_columns": [
     "turn",
@@ -73,50 +73,50 @@
     "WEST"
   ],
   "metrics": {
-    "farmer_action_accuracy": 0.71192,
-    "market_sell_accuracy": 0.9637866666666667,
-    "hire_regressor_mse": 0.008809639436807199
+    "farmer_action_accuracy": 0.7002444444444444,
+    "market_sell_accuracy": 0.9617777777777777,
+    "hire_regressor_mse": 0.005698427106027508
   },
   "top_features": [
     {
       "feature": "hour",
-      "importance": 7268
+      "importance": 6911
     },
     {
       "feature": "unwatered_crops",
-      "importance": 4506
-    },
-    {
-      "feature": "money",
-      "importance": 3586
-    },
-    {
-      "feature": "opp_money",
-      "importance": 3036
-    },
-    {
-      "feature": "shed_wheat",
-      "importance": 2751
-    },
-    {
-      "feature": "turn",
-      "importance": 2630
-    },
-    {
-      "feature": "price_strawberry",
-      "importance": 2611
+      "importance": 4139
     },
     {
       "feature": "price_milk",
-      "importance": 2493
+      "importance": 3472
+    },
+    {
+      "feature": "money",
+      "importance": 3413
+    },
+    {
+      "feature": "opp_money",
+      "importance": 3271
+    },
+    {
+      "feature": "price_strawberry",
+      "importance": 3181
+    },
+    {
+      "feature": "shed_wheat",
+      "importance": 3054
+    },
+    {
+      "feature": "turn",
+      "importance": 2974
     },
     {
       "feature": "harvestable_tiles",
-      "importance": 2421
+      "importance": 2195
     },
     {
-      "feature": "tiles_empty",
-      "importance": 2324
+      "feature": "tiles_plant",
+      "importance": 2168
     }
   ],
   "model_file": "models\\bc_model.joblib"
