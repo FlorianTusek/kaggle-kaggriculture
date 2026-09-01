@@ -2,7 +2,84 @@
   "algorithm": "PPO (Proximal Policy Optimization)",
   "framework": "stable-baselines3",
   "policy": "MlpPolicy",
-  "total_timesteps": 30000,
+  "initialized_with_bc": true,
+  "bc_metrics": {
+    "epochs": 10,
+    "final_val_acc": 0.27237333333333336,
+    "history": [
+      {
+        "epoch": 1,
+        "train_loss": 2.267401898072187,
+        "train_acc": 0.23231529411764706,
+        "val_loss": 2.2246789932250977,
+        "val_acc": 0.23672
+      },
+      {
+        "epoch": 2,
+        "train_loss": 2.2108965398451863,
+        "train_acc": 0.24597176470588236,
+        "val_loss": 2.2010865211486816,
+        "val_acc": 0.25106666666666666
+      },
+      {
+        "epoch": 3,
+        "train_loss": 2.1923145882236255,
+        "train_acc": 0.25200941176470587,
+        "val_loss": 2.1984028816223145,
+        "val_acc": 0.2538666666666667
+      },
+      {
+        "epoch": 4,
+        "train_loss": 2.185803723375657,
+        "train_acc": 0.2530964705882353,
+        "val_loss": 2.186331033706665,
+        "val_acc": 0.25293333333333334
+      },
+      {
+        "epoch": 5,
+        "train_loss": 2.166902338660745,
+        "train_acc": 0.2549647058823529,
+        "val_loss": 2.161181926727295,
+        "val_acc": 0.2565866666666667
+      },
+      {
+        "epoch": 6,
+        "train_loss": 2.131903231690351,
+        "train_acc": 0.2622070588235294,
+        "val_loss": 2.1158318519592285,
+        "val_acc": 0.26669333333333334
+      },
+      {
+        "epoch": 7,
+        "train_loss": 2.1094270184999355,
+        "train_acc": 0.2654258823529412,
+        "val_loss": 2.108114719390869,
+        "val_acc": 0.26610666666666666
+      },
+      {
+        "epoch": 8,
+        "train_loss": 2.0957299025008256,
+        "train_acc": 0.26873411764705885,
+        "val_loss": 2.094820976257324,
+        "val_acc": 0.26754666666666665
+      },
+      {
+        "epoch": 9,
+        "train_loss": 2.0906251149345847,
+        "train_acc": 0.27181647058823527,
+        "val_loss": 2.0759811401367188,
+        "val_acc": 0.2753333333333333
+      },
+      {
+        "epoch": 10,
+        "train_loss": 2.0784935333610983,
+        "train_acc": 0.27375529411764704,
+        "val_loss": 2.105236291885376,
+        "val_acc": 0.27237333333333336
+      }
+    ]
+  },
+  "total_timesteps": 20000,
   "n_features": 49,
   "n_actions": 17,
   "action_lookup": [
@@ -35,7 +112,7 @@
     "ent_coef": 0.01
   },
   "evaluation": {
-    "mean_reward": 13500.0,
+    "mean_reward": 0.0,
     "std_reward": 0.0,
     "n_eval_episodes": 5
   },

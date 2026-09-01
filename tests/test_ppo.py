@@ -88,3 +88,31 @@ def test_ppo_policy_loaded(sample_obs):
     assert "recommended_farmer_action" in advice
     assert advice["recommended_farmer_action"] in ACTION_LOOKUP
     assert advice["policy_type"] == "PPO_RL"
+
+
+def test_ppo_bc_initialized_checkpoint(sample_obs):
+    bc_init_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "ppo_agent_bc_initialized.zip")
+    if not os.path.exists(bc_init_path):
+        pytest.skip("ppo_agent_bc_initialized.zip not found")
+        
+    policy = PPOPolicy(model_path=bc_init_path)
+    assert policy.is_loaded is True
+    act = policy.predict_action(sample_obs)
+    assert isinstance(act, str)
+    assert act in ACTION_LOOKUP
+
+
+def test_load_bc_dataset():
+    from src.train_ppo import load_bc_dataset
+    data_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "processed", "training_pairs.jsonl")
+    if not os.path.exists(data_path):
+        pytest.skip("training_pairs.jsonl not found")
+        
+    X, y = load_bc_dataset(dataset_path=data_path, max_samples=100)
+    assert isinstance(X, np.ndarray)
+    assert isinstance(y, np.ndarray)
+    assert len(X) == 100
+    assert X.shape[1] == 49
+    assert len(y) == 100
+    assert np.all((y >= 0) & (y < len(ACTION_LOOKUP)))
+

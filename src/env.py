@@ -235,8 +235,8 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                 continue
             cmd = op[0]
 
-            if cmd == "PLANT" and len(order) >= 2:
-                crop = op[1] if len(op) >= 2 else "CARROT"
+            if cmd == "PLANT" and len(op) >= 2:
+                crop = op[1]
                 if seeds.get(crop, 0) > 0:
                     for y in range(BOARD_SIZE):
                         for x in range(BOARD_SIZE):
