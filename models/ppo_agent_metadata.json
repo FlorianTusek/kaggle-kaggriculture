@@ -79,7 +79,7 @@
       }
     ]
   },
-  "total_timesteps": 20000,
+  "total_timesteps": 30000,
   "n_features": 49,
   "n_actions": 17,
   "action_lookup": [
