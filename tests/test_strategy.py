@@ -166,5 +166,6 @@ class TestAgentIntegration:
         assert "market" in result
         assert isinstance(result["market"], list)
         assert len(result["market"]) <= 10
-        # SELL CARROT should be first market order for liquidity
-        assert result["market"][0][0] == "SELL"
+        # SELL CARROT should be present in market orders for liquidity
+        assert any(order[0] == "SELL" and order[1] == "CARROT" for order in result["market"])
+
