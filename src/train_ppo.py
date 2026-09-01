@@ -1,26 +1,36 @@
 # SPDX-License-Identifier: MIT
-"""PPO Reinforcement Learning & Multi-Generational League Training for Kaggriculture.
+"""PPO Reinforcement Learning & 100,000 Generation League Training for Kaggriculture.
 
 Features:
-1. GPU-Accelerated PyTorch CUDA Backend (auto-detects NVIDIA RTX 4070 / CUDA 12.1).
+1. GPU-Accelerated PyTorch Backend (auto-detects CUDA 12.1 / RTX 4070 with CPU fallback).
 2. Behavioral Cloning Policy Pre-Training: Initializes PPO ActorCriticPolicy weights from expert dataset.
-3. Multi-Generational Self-Play (League Training): Trains agent across successive generations
-   against a dynamic pool of evolving self-checkpoints and elite opponents (Top Meta & Heuristic Baselines).
-4. Automated League Evaluation & Checkpointing.
+3. Multi-Generational Self-Play (League Training): Continuous multi-generation self-play loop
+   designed to run up to 100,000 generations.
+4. Constant Memory & Disk Management:
+   - Rolling Opponent Pool: In-memory sliding window of recent generation policies.
+   - Smart Checkpoint Pruning: Retains milestone checkpoints every N generations while keeping disk footprint small.
+   - Streaming JSONL Telemetry: Appends records continuously to `league_history.jsonl`.
+5. Automatic Resume & Fault Tolerance.
 """
 
 import os
 import sys
+import glob
 import json
-import copy
+import time
+import shutil
 import argparse
+
+# Prioritize base Python site-packages with CUDA 12.1 PyTorch
+sys.path.insert(0, r"C:\Python310\lib\site-packages")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import numpy as np
 import torch
 import torch.nn as nn
-from pathlib import Path
 from typing import Dict, Any, Tuple, Optional, List, Union
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.env import KaggricultureEnv, ACTION_LOOKUP
 from src.agent import KaggricultureAgent
 from src.train_bc import FEATURE_COLUMNS
@@ -99,7 +109,7 @@ def pretrain_ppo_with_bc(
     model: Any,
     dataset_path: str = "data/processed/training_pairs.jsonl",
     max_samples: int = 200000,
-    epochs: int = 10,
+    epochs: int = 5,
     batch_size: int = 256,
     lr: float = 1e-3,
     val_split: float = 0.15,
@@ -113,7 +123,6 @@ def pretrain_ppo_with_bc(
     print(f"\n=== Initializing PPO Policy with Behavioral Cloning Weights on {device} ===")
     X, y = load_bc_dataset(dataset_path, max_samples=max_samples)
     
-    # Train / Val Split
     np.random.seed(seed)
     indices = np.random.permutation(len(X))
     val_size = int(len(X) * val_split)
@@ -124,7 +133,6 @@ def pretrain_ppo_with_bc(
     X_val = torch.tensor(X[val_idx], device=device)
     y_val = torch.tensor(y[val_idx], device=device)
     
-    # Policy network & optimizer
     policy_net = model.policy.to(device)
     optimizer = torch.optim.Adam(policy_net.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss().to(device)
@@ -162,7 +170,6 @@ def pretrain_ppo_with_bc(
         train_loss = running_loss / max(1, total)
         train_acc = correct / max(1, total)
         
-        # Validation evaluation
         policy_net.eval()
         with torch.no_grad():
             val_dist = policy_net.get_distribution(X_val)
@@ -191,48 +198,45 @@ def pretrain_ppo_with_bc(
 
 
 class LeagueOpponentPool:
-    """Dynamic League Opponent Pool for Multi-Generational Self-Play.
+    """Dynamic Constant-Memory League Opponent Pool for Multi-Generational Self-Play.
     
-    Maintains a weighted population of opponents:
+    Maintains a sliding window of generation opponents along with elite anchors:
     - Top Meta Agent (`submissions/meta_agent.py`)
     - Fast Baseline Heuristic Agent
-    - Past Generation Checkpoints (`models/league/gen_*.zip`)
+    - Sliding window of past generation checkpoints (`PPOGenWrapper`)
     """
     
-    def __init__(self, include_top_meta: bool = True, include_baseline: bool = True):
-        self.opponents: List[Dict[str, Any]] = []
-        self.weights: List[float] = []
+    def __init__(self, include_top_meta: bool = True, include_baseline: bool = True, max_gen_opponents: int = 10):
+        self.base_opponents: List[Dict[str, Any]] = []
+        self.base_weights: List[float] = []
+        self.gen_opponents: List[Dict[str, Any]] = []
+        self.gen_weights: List[float] = []
+        self.max_gen_opponents = max_gen_opponents
         self.current_opponent: Any = None
         self.current_name: str = "Unknown"
         
         if include_baseline:
-            self.add_opponent(
-                name="HeuristicBaseline",
-                agent_obj=KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False}),
-                weight=0.30
-            )
+            self.base_opponents.append({
+                "name": "HeuristicBaseline",
+                "agent": KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
+            })
+            self.base_weights.append(0.30)
             
         if include_top_meta:
             try:
                 from submissions.meta_agent import agent as meta_agent_fn
-                self.add_opponent(
-                    name="TopMetaAgent",
-                    agent_obj=meta_agent_fn,
-                    weight=0.35
-                )
+                self.base_opponents.append({
+                    "name": "TopMetaAgent",
+                    "agent": meta_agent_fn
+                })
+                self.base_weights.append(0.35)
             except Exception as e:
                 print(f"[LeaguePool] Notice: Could not import TopMetaAgent: {e}")
                 
         self.sample_new_match_opponent()
 
-    def add_opponent(self, name: str, agent_obj: Any, weight: float = 0.25):
-        """Register a new opponent in the active league pool."""
-        self.opponents.append({"name": name, "agent": agent_obj})
-        self.weights.append(weight)
-        print(f"  [LeaguePool] Registered opponent: '{name}' (Weight: {weight:.2f})")
-
     def add_generation_checkpoint(self, checkpoint_path: str, gen: int):
-        """Load a trained generation model checkpoint and add it to the opponent pool."""
+        """Load a trained generation checkpoint into the sliding memory pool."""
         try:
             from stable_baselines3 import PPO
             model = PPO.load(checkpoint_path, device="cpu")
@@ -253,22 +257,33 @@ class LeagueOpponentPool:
                     return action
 
             wrapper = PPOGenWrapper(model)
-            weight = max(0.15, 0.40 / max(1, gen))
-            self.add_opponent(name=f"Gen_{gen:02d}", agent_obj=wrapper, weight=weight)
+            
+            # Maintain sliding window to prevent OOM
+            if len(self.gen_opponents) >= self.max_gen_opponents:
+                self.gen_opponents.pop(0)
+                self.gen_weights.pop(0)
+                
+            self.gen_opponents.append({
+                "name": f"Gen_{gen:05d}",
+                "agent": wrapper
+            })
+            self.gen_weights.append(0.35 / max(1, len(self.gen_opponents)))
         except Exception as e:
             print(f"[LeaguePool] Notice: Failed to add generation checkpoint {checkpoint_path}: {e}")
 
     def sample_new_match_opponent(self):
         """Sample a new opponent according to normalized league weights."""
-        if not self.opponents:
+        all_opps = self.base_opponents + self.gen_opponents
+        all_weights = self.base_weights + self.gen_weights
+        if not all_opps:
             self.current_opponent = KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
             self.current_name = "DefaultFallback"
             return
-        w = np.array(self.weights, dtype=np.float32)
+        w = np.array(all_weights, dtype=np.float32)
         p = w / w.sum()
-        chosen = np.random.choice(len(self.opponents), p=p)
-        self.current_opponent = self.opponents[chosen]["agent"]
-        self.current_name = self.opponents[chosen]["name"]
+        chosen = np.random.choice(len(all_opps), p=p)
+        self.current_opponent = all_opps[chosen]["agent"]
+        self.current_name = all_opps[chosen]["name"]
 
     def act(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         """Callable/object interface for KaggricultureEnv opponent step."""
@@ -288,10 +303,10 @@ class LeagueOpponentPool:
 
 def evaluate_against_benchmarks(
     model: Any,
-    n_episodes: int = 5,
+    n_episodes: int = 2,
     include_top_meta: bool = True
 ) -> Dict[str, Any]:
-    """Comprehensive evaluation against Baseline and Top Meta opponents measuring final bank balances."""
+    """Evaluation against Baseline and Top Meta measuring final bank balances."""
     results = {}
     
     # 1. Evaluate vs Baseline
@@ -310,7 +325,6 @@ def evaluate_against_benchmarks(
     mean_rew_base = float(np.mean(base_scores))
     std_rew_base = float(np.std(base_scores))
     results["vs_baseline"] = {"mean_bank": mean_rew_base, "std_bank": std_rew_base}
-    print(f"  Evaluation vs Baseline: Mean Bank = ${mean_rew_base:,.2f} (+/- ${std_rew_base:,.2f})")
     
     # 2. Evaluate vs Top Meta (if available)
     if include_top_meta:
@@ -330,25 +344,40 @@ def evaluate_against_benchmarks(
             mean_rew_meta = float(np.mean(meta_scores))
             std_rew_meta = float(np.std(meta_scores))
             results["vs_top_meta"] = {"mean_bank": mean_rew_meta, "std_bank": std_rew_meta}
-            print(f"  Evaluation vs Top Meta: Mean Bank = ${mean_rew_meta:,.2f} (+/- ${std_rew_meta:,.2f})")
         except Exception as e:
-            print(f"  Evaluation vs Top Meta skipped: {e}")
+            results["vs_top_meta"] = {"error": str(e)}
             
     return results
 
 
+def prune_old_checkpoints(output_dir: str, keep_recent: int = 5):
+    """Remove older non-milestone generation zip files to save disk space."""
+    pattern = os.path.join(output_dir, "gen_*.zip")
+    files = sorted(glob.glob(pattern))
+    if len(files) > keep_recent:
+        for f in files[:-keep_recent]:
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+
+
 def train_ppo_league(
-    n_generations: int = 3,
-    timesteps_per_gen: int = 20000,
+    n_generations: int = 100000,
+    timesteps_per_gen: int = 2048,
     output_dir: str = "models/league",
     init_with_bc: bool = True,
     bc_dataset_path: str = "data/processed/training_pairs.jsonl",
     bc_epochs: int = 5,
-    eval_episodes: int = 5,
+    eval_episodes: int = 2,
+    eval_freq: int = 100,
+    save_freq: int = 100,
+    keep_recent_checkpoints: int = 5,
     seed: int = 42,
-    preferred_device: Optional[str] = None
+    preferred_device: Optional[str] = None,
+    resume: bool = True
 ) -> Dict[str, Any]:
-    """Execute Multi-Generational League Training (Self-Play & Elite Opponents) on GPU/CPU."""
+    """Execute Multi-Generational League Training targeting up to 100,000 generations."""
     try:
         from stable_baselines3 import PPO
     except ImportError as e:
@@ -356,100 +385,139 @@ def train_ppo_league(
 
     device = get_torch_device(preferred_device)
     os.makedirs(output_dir, exist_ok=True)
+    milestones_dir = os.path.join(output_dir, "milestones")
+    os.makedirs(milestones_dir, exist_ok=True)
     os.makedirs("models", exist_ok=True)
 
     print("\n" + "=" * 70)
-    print(f"  STARTING MULTI-GENERATIONAL PPO LEAGUE TRAINING")
-    print(f"  Generations: {n_generations} | Timesteps/Gen: {timesteps_per_gen:,} | Device: {device}")
+    print(f"  STARTING 100,000 GENERATION PPO LEAGUE TRAINING")
+    print(f"  Target Generations: {n_generations:,} | Timesteps/Gen: {timesteps_per_gen:,} | Device: {device}")
+    print(f"  Eval Frequency: every {eval_freq} gens | Milestone Save: every {save_freq} gens")
     print("=" * 70)
 
-    # Initialize League Opponent Pool
-    league_pool = LeagueOpponentPool(include_top_meta=True, include_baseline=True)
-
-    # Training Environment wrapped with League Opponent Pool
+    league_pool = LeagueOpponentPool(include_top_meta=True, include_baseline=True, max_gen_opponents=10)
     env = KaggricultureEnv(max_turns=720, opponent_agent=league_pool)
 
-    # Initialize PPO Model on selected device
-    model = PPO(
-        policy="MlpPolicy",
-        env=env,
-        learning_rate=3e-4,
-        n_steps=512,
-        batch_size=64,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.01,
-        verbose=1,
-        device=str(device),
-        seed=seed
-    )
+    start_gen = 1
+    champion_path = "models/ppo_agent.zip"
+    model = None
 
-    bc_metrics = {}
-    if init_with_bc and os.path.exists(bc_dataset_path):
-        bc_metrics = pretrain_ppo_with_bc(
-            model=model,
-            dataset_path=bc_dataset_path,
-            epochs=bc_epochs,
-            device=device,
+    # Check for resume
+    summary_path = os.path.join(output_dir, "league_summary.json")
+    if resume and os.path.exists(summary_path) and os.path.exists(champion_path):
+        try:
+            with open(summary_path, "r") as f:
+                summary = json.load(f)
+            start_gen = summary.get("current_generation", 0) + 1
+            print(f"\n[Resume] Found active league state. Resuming from Generation {start_gen:,}...")
+            model = PPO.load(champion_path, env=env, device=str(device))
+        except Exception as e:
+            print(f"[Resume] Could not resume from checkpoint ({e}). Starting fresh.")
+            model = None
+
+    if model is None:
+        model = PPO(
+            policy="MlpPolicy",
+            env=env,
+            learning_rate=3e-4,
+            n_steps=512,
+            batch_size=64,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.01,
+            verbose=0,
+            device=str(device),
             seed=seed
         )
-        bc_checkpoint_path = os.path.join(output_dir, "gen_00_bc_init.zip")
-        model.save(bc_checkpoint_path)
-        print(f"Saved initial BC checkpoint to: {bc_checkpoint_path}")
+        if init_with_bc and os.path.exists(bc_dataset_path):
+            pretrain_ppo_with_bc(
+                model=model,
+                dataset_path=bc_dataset_path,
+                epochs=bc_epochs,
+                device=device,
+                seed=seed
+            )
+            model.save(champion_path)
 
-    league_history = []
+    jsonl_path = os.path.join(output_dir, "league_history.jsonl")
+    start_time = time.time()
+    total_timesteps_trained = (start_gen - 1) * timesteps_per_gen
 
-    for gen in range(1, n_generations + 1):
-        print("\n" + "#" * 70)
-        print(f"  >>> LEAGUE GENERATION {gen:02d} / {n_generations:02d} <<<")
-        print(f"  Training for {timesteps_per_gen:,} timesteps on {device} against League Pool ({len(league_pool.opponents)} opponents)...")
-        print("#" * 70)
+    try:
+        for gen in range(start_gen, n_generations + 1):
+            gen_start_time = time.time()
 
-        # Train Generation
-        model.learn(total_timesteps=timesteps_per_gen, reset_num_timesteps=False)
+            # Train generation
+            model.learn(total_timesteps=timesteps_per_gen, reset_num_timesteps=False)
+            total_timesteps_trained += timesteps_per_gen
+            gen_fps = timesteps_per_gen / max(0.001, (time.time() - gen_start_time))
 
-        # Save Generation Checkpoint
-        gen_checkpoint_path = os.path.join(output_dir, f"gen_{gen:02d}.zip")
-        model.save(gen_checkpoint_path)
-        model.save("models/ppo_agent.zip")  # Update active champion model
-        print(f"\n[Generation {gen:02d}] Saved checkpoint to: {gen_checkpoint_path}")
+            # Save rolling checkpoint & champion
+            gen_checkpoint_path = os.path.join(output_dir, f"gen_{gen:05d}.zip")
+            model.save(gen_checkpoint_path)
+            model.save(champion_path)
 
-        # Add this generation to the League Pool for subsequent generations
-        league_pool.add_generation_checkpoint(gen_checkpoint_path, gen=gen)
+            # Save milestone
+            if gen % save_freq == 0:
+                milestone_path = os.path.join(milestones_dir, f"gen_{gen:05d}.zip")
+                shutil.copyfile(gen_checkpoint_path, milestone_path)
 
-        # Evaluate against benchmarks
-        print(f"\n--- Evaluating Generation {gen:02d} ---")
-        eval_metrics = evaluate_against_benchmarks(model, n_episodes=eval_episodes, include_top_meta=True)
+            # Prune old zip files to preserve disk space
+            prune_old_checkpoints(output_dir, keep_recent=keep_recent_checkpoints)
 
-        gen_record = {
-            "generation": gen,
-            "timesteps": gen * timesteps_per_gen,
-            "device": str(device),
-            "checkpoint": gen_checkpoint_path,
-            "eval_metrics": eval_metrics
-        }
-        league_history.append(gen_record)
+            # Add to sliding league pool
+            league_pool.add_generation_checkpoint(gen_checkpoint_path, gen=gen)
 
-        # Save cumulative league history
-        history_path = os.path.join(output_dir, "league_history.json")
-        with open(history_path, "w") as f:
-            json.dump(league_history, f, indent=2)
+            # Periodic benchmark evaluation
+            eval_metrics = {}
+            if gen % eval_freq == 0 or gen <= 5:
+                eval_metrics = evaluate_against_benchmarks(model, n_episodes=eval_episodes, include_top_meta=True)
+                base_b = eval_metrics.get("vs_baseline", {}).get("mean_bank", 0)
+                meta_b = eval_metrics.get("vs_top_meta", {}).get("mean_bank", 0)
+                print(f"[Gen {gen:05d}/{n_generations:,}] FPS: {gen_fps:.0f} | Eval vs Base: ${base_b:,.0f} | vs Top Meta: ${meta_b:,.0f} | Total Steps: {total_timesteps_trained:,}")
+            elif gen % 10 == 0:
+                elapsed = time.time() - start_time
+                print(f"[Gen {gen:05d}/{n_generations:,}] FPS: {gen_fps:.0f} | Total Steps: {total_timesteps_trained:,} | Uptime: {elapsed/60:.1f}m")
+
+            # Stream telemetry to JSONL
+            record = {
+                "gen": gen,
+                "timesteps": total_timesteps_trained,
+                "fps": float(gen_fps),
+                "timestamp": time.time(),
+                "eval": eval_metrics
+            }
+            with open(jsonl_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+
+            # Update summary JSON
+            summary = {
+                "current_generation": gen,
+                "target_generations": n_generations,
+                "total_timesteps": total_timesteps_trained,
+                "device": str(device),
+                "fps": float(gen_fps),
+                "uptime_seconds": time.time() - start_time,
+                "last_eval": eval_metrics,
+                "champion_model": champion_path
+            }
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+
+    except KeyboardInterrupt:
+        print("\n[League Training] Training interrupted by user. State saved successfully.")
+    except Exception as e:
+        print(f"\n[League Training] Exception encountered: {e}")
+        raise
 
     print("\n" + "=" * 70)
-    print(f"  LEAGUE TRAINING COMPLETE! {n_generations} Generations Successfully Trained.")
-    print(f"  Champion model updated at: models/ppo_agent.zip")
-    print(f"  Full league history saved to: {os.path.join(output_dir, 'league_history.json')}")
+    print(f"  LEAGUE TRAINING COMPLETE / SUSPENDED at Generation {gen:,}.")
+    print(f"  Summary saved to: {summary_path}")
     print("=" * 70)
 
-    return {
-        "n_generations": n_generations,
-        "timesteps_per_gen": timesteps_per_gen,
-        "device": str(device),
-        "bc_metrics": bc_metrics,
-        "league_history": league_history
-    }
+    return summary
 
 
 def train_ppo(
@@ -463,7 +531,7 @@ def train_ppo(
     preferred_device: Optional[str] = None,
     seed: int = 42
 ) -> Dict[str, Any]:
-    """Single-stage PPO training (legacy interface)."""
+    """Single-stage PPO training."""
     device = get_torch_device(preferred_device)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
@@ -527,15 +595,17 @@ def train_ppo(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-Generational PPO League Training for Kaggriculture")
     parser.add_argument("--league", action="store_true", default=True, help="Run multi-generational league self-play")
-    parser.add_argument("--generations", type=int, default=3, help="Number of self-play generations")
-    parser.add_argument("--timesteps-per-gen", type=int, default=20000, help="Timesteps per generation")
+    parser.add_argument("--generations", type=int, default=100000, help="Number of self-play generations")
+    parser.add_argument("--timesteps-per-gen", type=int, default=2048, help="Timesteps per generation")
+    parser.add_argument("--eval-freq", type=int, default=100, help="Evaluation frequency in generations")
+    parser.add_argument("--save-freq", type=int, default=100, help="Milestone save frequency in generations")
     parser.add_argument("--device", default="auto", help="Compute device (auto, cuda, cpu)")
     parser.add_argument("--output-dir", default="models/league", help="Output directory for league checkpoints")
     parser.add_argument("--init-with-bc", action="store_true", default=True, help="Pre-train with BC weights")
     parser.add_argument("--no-bc", action="store_false", dest="init_with_bc", help="Do not pre-train with BC")
     parser.add_argument("--bc-data", default="data/processed/training_pairs.jsonl", help="BC dataset path")
     parser.add_argument("--bc-epochs", type=int, default=5, help="BC pretraining epochs")
-    parser.add_argument("--eval-episodes", type=int, default=3, help="Number of eval episodes per generation")
+    parser.add_argument("--eval-episodes", type=int, default=2, help="Number of eval episodes per generation")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
@@ -548,6 +618,8 @@ if __name__ == "__main__":
             bc_dataset_path=args.bc_data,
             bc_epochs=args.bc_epochs,
             eval_episodes=args.eval_episodes,
+            eval_freq=args.eval_freq,
+            save_freq=args.save_freq,
             seed=args.seed,
             preferred_device=args.device
         )
