@@ -63,12 +63,16 @@ def evaluate_agent_matchup(
         while not (terminated or truncated):
             if agent_type == "ensemble" and ensemble_agent:
                 act_dict = ensemble_agent.act(env.obs)
-            elif agent_type == "bc" and policy and policy.is_loaded:
-                act_str = policy.predict_farmer_action(env.obs)
-                act_dict = {"farmer": [[act_str]], "hands": [], "market": []}
-            elif agent_type == "ppo" and policy and policy.is_loaded:
-                act_str = policy.predict_action(env.obs)
-                act_dict = {"farmer": [[act_str]], "hands": [], "market": []}
+            elif agent_type == "bc" and policy:
+                if not hasattr(env, "_bc_agent_inst"):
+                    env._bc_agent_inst = KaggricultureAgent(policy={'use_ml_policy': True, 'use_ensemble': False})
+                    env._bc_agent_inst.bc_policy = policy
+                act_dict = env._bc_agent_inst.act(env.obs)
+            elif agent_type == "ppo" and policy:
+                if not hasattr(env, "_ppo_agent_inst"):
+                    env._ppo_agent_inst = KaggricultureAgent(policy={'use_ml_policy': True, 'use_ensemble': False})
+                    env._ppo_agent_inst.bc_policy = policy
+                act_dict = env._ppo_agent_inst.act(env.obs)
             else:
                 act_dict = {"farmer": [["PASS"]], "hands": [], "market": []}
                 
