@@ -333,9 +333,18 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
         earned_this_turn = self.execute_agent_turn(agent_action, player_idx=0)
 
         # Execute opponent turn ONCE
-        opp_obs = self._get_obs_dict(1)
-        opp_action = self.opponent_agent.act(opp_obs)
-        self.execute_agent_turn(opp_action, player_idx=1)
+        if self.opponent_agent is not None:
+            opp_obs = self._get_obs_dict(1)
+            if hasattr(self.opponent_agent, "act"):
+                opp_action = self.opponent_agent.act(opp_obs)
+            elif callable(self.opponent_agent):
+                try:
+                    opp_action = self.opponent_agent(opp_obs, None)
+                except TypeError:
+                    opp_action = self.opponent_agent(opp_obs)
+            else:
+                opp_action = {"farmer": [["PASS"]], "hands": [], "market": []}
+            self.execute_agent_turn(opp_action, player_idx=1)
 
         # Daily yield accumulation & tile refresh (on hour 23)
         if hour == 23:
