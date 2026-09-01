@@ -176,8 +176,10 @@ def train_ppo(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     print(f"\n=== Initializing KaggricultureEnv for PPO Training ===")
-    env = KaggricultureEnv(max_turns=720, opponent_agent=KaggricultureAgent())
-    eval_env = KaggricultureEnv(max_turns=720, opponent_agent=KaggricultureAgent())
+    training_opp = KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
+    eval_opp = KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
+    env = KaggricultureEnv(max_turns=720, opponent_agent=training_opp)
+    eval_env = KaggricultureEnv(max_turns=720, opponent_agent=eval_opp)
     
     print(f"Observation space: {env.observation_space}")
     print(f"Action space: {env.action_space} ({len(ACTION_LOOKUP)} discrete actions)")

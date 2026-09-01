@@ -165,20 +165,22 @@ class StrategyPlanner:
         money = me.get("money", 0)
         phase = get_season_phase(day, self.policy)
 
-        if not phase["investing"] or day > 18 or not free_tiles:
+        if not phase["investing"] or day > 20 or not free_tiles:
             return []
 
         tiles = me.get("tiles", [])
+        unlocked = me.get("unlocked_quadrants", ["NW"])
         n_structures = 0
         for row in tiles:
             for t in row:
                 if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE"):
                     n_structures += 1
 
-        if n_structures >= 4:
+        max_structures = min(12, len(unlocked) * 3)
+        if n_structures >= max_structures:
             return []
 
-        if money >= 600:
+        if money >= 500:
             pos = free_tiles[0]
             op = ["BUILD_PASTURE"] if n_structures % 2 == 0 else ["BUILD_COOP"]
             return [{
@@ -195,6 +197,7 @@ class StrategyPlanner:
         day = obs.get("day", 0)
         seeds = priv.get("seeds", {})
         tiles = me.get("tiles", [])
+        unlocked = me.get("unlocked_quadrants", ["NW"])
         phase = get_season_phase(day, self.policy)
 
         if not phase["planting"] or not free_tiles:
@@ -207,11 +210,12 @@ class StrategyPlanner:
                 if isinstance(t, dict) and t.get("kind") == "PLANT":
                     n_planted += 1
 
-        # Cap max active crops at 16 to guarantee workers can water all crops daily
-        if n_planted >= 16:
+        # Scale active crops dynamically with unlocked quadrants
+        max_planted = min(64, len(unlocked) * 16)
+        if n_planted >= max_planted:
             return []
 
-        base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
+        base_shares = self.policy.get("crop_share", {"CARROT": 0.20, "TOMATO": 0.20, "WHEAT": 0.15, "STRAWBERRY": 0.25, "MELON": 0.20})
         prices = obs.get("market", {}).get("prices", {})
         
         # Calculate dynamic demand-responsive shares

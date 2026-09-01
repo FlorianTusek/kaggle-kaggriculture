@@ -135,8 +135,8 @@ class MarketOptimizer:
                             money -= 400
 
         # 2. SELL Orders (queued early to fund buys)
-        sell_order_list = self.policy.get("sell_order", ["MELON", "STRAWBERRY", "MILK", "WOOL", "EGG", "TOMATO", "CARROT", "WHEAT", "FERTILIZER"])
-        sell_lots = self.policy.get("sell_lots", {"MELON": 5, "STRAWBERRY": 10, "MILK": 10, "WOOL": 10, "EGG": 15, "TOMATO": 10, "CARROT": 15, "WHEAT": 20, "FERTILIZER": 20})
+        sell_order_list = self.policy.get("sell_order", ["MELON", "STRAWBERRY", "WOOL", "MILK", "EGG", "TOMATO", "CARROT", "WHEAT", "FERTILIZER"])
+        sell_lots = self.policy.get("sell_lots", {"MELON": 15, "STRAWBERRY": 20, "WOOL": 20, "MILK": 20, "EGG": 25, "TOMATO": 20, "CARROT": 25, "WHEAT": 30, "FERTILIZER": 30})
         floors = self.policy.get("price_floors", {"MELON": 10, "STRAWBERRY": 10, "MILK": 10, "WOOL": 10, "EGG": 5, "TOMATO": 5, "CARROT": 5, "WHEAT": 2, "FERTILIZER": 1})
 
         for product in sell_order_list:
@@ -148,12 +148,12 @@ class MarketOptimizer:
 
             if phase["liquidating"]:
                 # End-of-season liquidation: sell all remaining stock in lots
-                max_lot = sell_lots.get(product, 20)
+                max_lot = sell_lots.get(product, 30)
                 qty = min(in_shed, max_lot)
                 sell_orders.append(["SELL", product, qty])
             elif cur_price >= floor:
                 # Dynamic sell timing based on price momentum
-                base_lot = sell_lots.get(product, 15)
+                base_lot = sell_lots.get(product, 20)
                 dynamic_lot = self.price_tracker.get_dynamic_lot_size(product, cur_price, base_lot=base_lot, floor_price=floor)
                 if dynamic_lot > 0:
                     qty = min(in_shed, dynamic_lot)
@@ -169,9 +169,10 @@ class MarketOptimizer:
 
         # 4. BUY_SEED Orders using demand-responsive crop shares
         if phase["planting"]:
-            stock_target = self.policy.get("seed_stock", 12)
+            unlocked = me.get("unlocked_quadrants", ["NW"])
+            stock_target = self.policy.get("seed_stock", 12) * max(1, len(unlocked))
             batch = self.policy.get("seed_batch", 6)
-            base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
+            base_shares = self.policy.get("crop_share", {"CARROT": 0.20, "TOMATO": 0.20, "WHEAT": 0.15, "STRAWBERRY": 0.25, "MELON": 0.20})
             crop_shares = compute_demand_responsive_shares(obs, prices, base_shares)
 
             for crop, share in crop_shares.items():

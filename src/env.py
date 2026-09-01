@@ -226,9 +226,20 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                     money += sell_qty * price
 
         # 2. Process Worker Ops (Planting, Building, Harvesting)
-        worker_ops = action_dict.get("farmer", [])
-        for hand_ops in action_dict.get("hands", []):
-            worker_ops.extend(hand_ops)
+        farmer_op = action_dict.get("farmer", [])
+        if farmer_op and isinstance(farmer_op, list):
+            if isinstance(farmer_op[0], list):
+                farmer_op = farmer_op[0]
+        else:
+            farmer_op = ["PASS"]
+
+        worker_ops = [farmer_op]
+        for hand in action_dict.get("hands", []):
+            if isinstance(hand, list):
+                if hand and isinstance(hand[0], list):
+                    worker_ops.append(hand[0])
+                else:
+                    worker_ops.append(hand)
 
         for op in worker_ops:
             if not isinstance(op, list) or not op:

@@ -32,7 +32,8 @@ def evaluate_agent_matchup(
     print(f"=======================================================")
     
     np.random.seed(seed)
-    env = KaggricultureEnv(max_turns=max_turns, opponent_agent=KaggricultureAgent())
+    opponent_inst = KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
+    env = KaggricultureEnv(max_turns=max_turns, opponent_agent=opponent_inst)
     
     # Load policy
     ensemble_agent = None

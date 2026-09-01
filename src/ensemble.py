@@ -108,7 +108,7 @@ class StrategyEnsemble:
 
         # Ensemble configuration
         self.use_mcts = self.policy.get("use_mcts", True)
-        self.mcts_simulations = self.policy.get("mcts_simulations", 25)
+        self.mcts_simulations = self.policy.get("mcts_simulations", 10)
         self.mcts_top_k = self.policy.get("mcts_top_k", 5)
 
     def _init_policies(self) -> None:
