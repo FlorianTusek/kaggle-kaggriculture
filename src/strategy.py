@@ -194,9 +194,21 @@ class StrategyPlanner:
         """Generate planting jobs for available free tiles using demand-responsive shares."""
         day = obs.get("day", 0)
         seeds = priv.get("seeds", {})
+        tiles = me.get("tiles", [])
         phase = get_season_phase(day, self.policy)
 
         if not phase["planting"] or not free_tiles:
+            return []
+
+        # Count currently planted crops
+        n_planted = 0
+        for row in tiles:
+            for t in row:
+                if isinstance(t, dict) and t.get("kind") == "PLANT":
+                    n_planted += 1
+
+        # Cap max active crops at 16 to guarantee workers can water all crops daily
+        if n_planted >= 16:
             return []
 
         base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
@@ -214,9 +226,17 @@ class StrategyPlanner:
             if cnt > 0:
                 available_seeds.extend([crop] * cnt)
 
+        # Sort free tiles by distance to Shed if tiles grid available
+        if me.get("tiles"):
+            sx, sy = _shed_tile(tiles)
+            clustered_tiles = sorted(free_tiles, key=lambda p: (_dist(p, (sx, sy)), p[1], p[0]))
+        else:
+            clustered_tiles = free_tiles
+
         plant_jobs = []
-        for pos in free_tiles:
-            if not available_seeds:
+        max_to_plant = 16 - n_planted
+        for pos in clustered_tiles:
+            if not available_seeds or len(plant_jobs) >= max_to_plant:
                 break
             crop = available_seeds.pop(0)
             plant_jobs.append({

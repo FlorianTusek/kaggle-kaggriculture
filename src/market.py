@@ -137,7 +137,7 @@ class MarketOptimizer:
         # 2. SELL Orders (queued early to fund buys)
         sell_order_list = self.policy.get("sell_order", ["MELON", "STRAWBERRY", "MILK", "WOOL", "EGG", "TOMATO", "CARROT", "WHEAT", "FERTILIZER"])
         sell_lots = self.policy.get("sell_lots", {"MELON": 5, "STRAWBERRY": 10, "MILK": 10, "WOOL": 10, "EGG": 15, "TOMATO": 10, "CARROT": 15, "WHEAT": 20, "FERTILIZER": 20})
-        floors = self.policy.get("price_floors", {"MELON": 150, "STRAWBERRY": 80, "MILK": 80, "WOOL": 100, "EGG": 30, "TOMATO": 35, "CARROT": 20, "WHEAT": 10, "FERTILIZER": 5})
+        floors = self.policy.get("price_floors", {"MELON": 10, "STRAWBERRY": 10, "MILK": 10, "WOOL": 10, "EGG": 5, "TOMATO": 5, "CARROT": 5, "WHEAT": 2, "FERTILIZER": 1})
 
         for product in sell_order_list:
             in_shed = shed.get(product, 0)

@@ -40,7 +40,7 @@ DEFAULT_POLICY = {
     'seed_stock': 12,
     'sell_order': ['MELON', 'STRAWBERRY', 'MILK', 'WOOL', 'EGG', 'TOMATO', 'CARROT', 'WHEAT', 'FERTILIZER'],
     'sell_lots': {'MELON': 5, 'STRAWBERRY': 10, 'MILK': 10, 'WOOL': 10, 'EGG': 15, 'TOMATO': 10, 'CARROT': 15, 'WHEAT': 20, 'FERTILIZER': 20},
-    'price_floors': {'MELON': 150, 'STRAWBERRY': 80, 'MILK': 80, 'WOOL': 100, 'EGG': 30, 'TOMATO': 35, 'CARROT': 20, 'WHEAT': 10, 'FERTILIZER': 5},
+    'price_floors': {'MELON': 10, 'STRAWBERRY': 10, 'MILK': 10, 'WOOL': 10, 'EGG': 5, 'TOMATO': 5, 'CARROT': 5, 'WHEAT': 2, 'FERTILIZER': 1},
     'plant_until_day': 25,
     'liquidate_from_day': 27,
     'carry': 6,

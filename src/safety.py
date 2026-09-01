@@ -130,7 +130,15 @@ def collect_safety_jobs(obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str,
                 if tile.get("fertilizer_available", 0) > 0:
                     fertilizer_jobs.append({"pos": pos, "op": ["COLLECT_FERTILIZER"], "need": None, "priority": 7})
 
-    # Combine in strict priority order
+    # Combine in strict priority order:
+    # 1. Emergency animal feeding
+    # 2. Emergency crop watering
+    # 3. Harvest ready crops & produce
+    # 4. Routine animal feeding
+    # 5. Animal care
+    # 6. Routine crop watering
+    # 7. Fertilizer collection
+    # 8. Weed digging
     all_safety_jobs = (
         emergency_feed +
         emergency_water +
