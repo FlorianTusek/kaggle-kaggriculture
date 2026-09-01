@@ -1,0 +1,73 @@
+{
+  "total_matches": 10,
+  "phase11_wins": 0,
+  "win_rate_percent": 0.0,
+  "mean_phase11_bank": 196552.5,
+  "mean_meta_bank": 404002.5,
+  "net_advantage": -207450.0,
+  "overall_winner": "Top Meta Opponent",
+  "seat0_results": [
+    {
+      "p0_money": 11000.0,
+      "p1_money": 385265.0,
+      "winner": "P1",
+      "margin": 374265.0
+    },
+    {
+      "p0_money": 11000.0,
+      "p1_money": 385265.0,
+      "winner": "P1",
+      "margin": 374265.0
+    },
+    {
+      "p0_money": 11000.0,
+      "p1_money": 385265.0,
+      "winner": "P1",
+      "margin": 374265.0
+    },
+    {
+      "p0_money": 11000.0,
+      "p1_money": 385265.0,
+      "winner": "P1",
+      "margin": 374265.0
+    },
+    {
+      "p0_money": 11000.0,
+      "p1_money": 385265.0,
+      "winner": "P1",
+      "margin": 374265.0
+    }
+  ],
+  "seat1_results": [
+    {
+      "p0_money": 422740.0,
+      "p1_money": 382105.0,
+      "winner": "P0",
+      "margin": 40635.0
+    },
+    {
+      "p0_money": 422740.0,
+      "p1_money": 382105.0,
+      "winner": "P0",
+      "margin": 40635.0
+    },
+    {
+      "p0_money": 422740.0,
+      "p1_money": 382105.0,
+      "winner": "P0",
+      "margin": 40635.0
+    },
+    {
+      "p0_money": 422740.0,
+      "p1_money": 382105.0,
+      "winner": "P0",
+      "margin": 40635.0
+    },
+    {
+      "p0_money": 422740.0,
+      "p1_money": 382105.0,
+      "winner": "P0",
+      "margin": 40635.0
+    }
+  ]
+}
