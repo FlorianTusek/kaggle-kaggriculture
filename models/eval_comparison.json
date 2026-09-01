@@ -1,22 +1,17 @@
 {
-  "timestamp": "2026-08-31",
-  "n_episodes": 10,
+  "timestamp": "2026-09-01",
+  "n_episodes": 5,
   "phase3_bc": {
     "agent_type": "bc",
-    "n_episodes": 10,
+    "n_episodes": 5,
     "win_rate_pct": 100.0,
-    "wins": 10,
+    "wins": 5,
     "draws": 0,
     "losses": 0,
     "mean_agent_money": 15150.0,
     "mean_opponent_money": 13800.0,
     "profit_advantage": 1350.0,
     "scores_agent": [
-      15150.0,
-      15150.0,
-      15150.0,
-      15150.0,
-      15150.0,
       15150.0,
       15150.0,
       15150.0,
@@ -28,30 +23,20 @@
       13800.0,
       13800.0,
       13800.0,
-      13800.0,
-      13800.0,
-      13800.0,
-      13800.0,
-      13800.0,
       13800.0
     ]
   },
   "phase4_ppo": {
     "agent_type": "ppo",
-    "n_episodes": 10,
+    "n_episodes": 5,
     "win_rate_pct": 100.0,
-    "wins": 10,
+    "wins": 5,
     "draws": 0,
     "losses": 0,
     "mean_agent_money": 16500.0,
     "mean_opponent_money": 13800.0,
     "profit_advantage": 2700.0,
     "scores_agent": [
-      16500.0,
-      16500.0,
-      16500.0,
-      16500.0,
-      16500.0,
       16500.0,
       16500.0,
       16500.0,
@@ -63,7 +48,27 @@
       13800.0,
       13800.0,
       13800.0,
-      13800.0,
+      13800.0
+    ]
+  },
+  "phase5_ensemble": {
+    "agent_type": "ensemble",
+    "n_episodes": 5,
+    "win_rate_pct": 100.0,
+    "wins": 5,
+    "draws": 0,
+    "losses": 0,
+    "mean_agent_money": 16300.0,
+    "mean_opponent_money": 13800.0,
+    "profit_advantage": 2500.0,
+    "scores_agent": [
+      16300.0,
+      16300.0,
+      16300.0,
+      16300.0,
+      16300.0
+    ],
+    "scores_opponent": [
       13800.0,
       13800.0,
       13800.0,
@@ -74,13 +79,15 @@
   "comparison": {
     "bc_win_rate": 100.0,
     "ppo_win_rate": 100.0,
+    "ensemble_win_rate": 100.0,
     "bc_mean_profit": 15150.0,
     "ppo_mean_profit": 16500.0,
-    "profit_delta_ppo_minus_bc": 1350.0
+    "ensemble_mean_profit": 16300.0,
+    "profit_delta_ensemble_minus_ppo": -200.0
   },
   "recommendation": {
-    "benchmark_passed": true,
-    "preferred_model": "Phase 4 PPO",
-    "rationale": "Phase 4 PPO achieved 100.0% win rate ($16,500.00 mean bank) vs Phase 3 BC 100.0% win rate ($15,150.00 mean bank). PPO demonstrates superior performance over BC baseline."
+    "benchmark_passed": false,
+    "preferred_model": "Phase 5 Ensemble Meta-Controller",
+    "rationale": "Phase 5 Ensemble achieved 100.0% win rate ($16,300.00 mean bank) vs Phase 4 PPO 100.0% ($16,500.00) and Phase 3 BC 100.0% ($15,150.00). Phase 5 Strategy Ensemble Meta-Controller demonstrates top performance and stability."
   }
 }

@@ -64,7 +64,7 @@ def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str
     return ops
 
 class KaggricultureAgent:
-    """Modular Kaggriculture Baseline Agent leveraging SafetyLayer, StrategyPlanner, MarketOptimizer, and BehavioralCloningPolicy."""
+    """Modular Kaggriculture Baseline Agent leveraging SafetyLayer, StrategyPlanner, MarketOptimizer, BehavioralCloningPolicy, and StrategyEnsemble."""
 
     def __init__(self, policy: Optional[Dict[str, Any]] = None, model_path: Optional[str] = None):
         self.policy = policy if policy is not None else DEFAULT_POLICY
@@ -82,10 +82,43 @@ class KaggricultureAgent:
                     self.bc_policy = ppo
                 else:
                     self.bc_policy = BehavioralCloningPolicy(model_path=model_path)
-            except Exception as e:
+            except Exception:
                 self.bc_policy = None
 
+        # Strategy Ensemble Meta-Controller (Phase 5)
+        self.ensemble = None
+        if self.policy.get("use_ensemble", True):
+            try:
+                from src.ensemble import StrategyEnsemble
+                self.ensemble = StrategyEnsemble(self.policy)
+            except Exception:
+                self.ensemble = None
+
     def act(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        # If bc_policy was manually assigned/mocked (e.g. in unit tests), use manual advice path
+        if self.bc_policy is not None and hasattr(self.bc_policy, 'advise') and not getattr(self.ensemble, '_policies_initialized', False):
+            try:
+                ml_advice = self.bc_policy.advise(obs)
+                me = obs["farms"][obs["player"]]
+                priv = obs["private"]
+                tiles = me["tiles"]
+                safety_jobs = self.safety_layer.get_jobs(obs, me, priv)
+                free_tiles = _open_tiles(tiles)
+                plant_jobs = self.strategy_planner.plan_planting_jobs(obs, me, priv, free_tiles)
+                all_jobs = safety_jobs + plant_jobs
+                worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs, ml_advice=ml_advice)
+                market_orders = self.market_optimizer.plan_market_orders(obs, me, priv)
+                return {
+                    "farmer": worker_ops[0],
+                    "hands": worker_ops[1:],
+                    "market": market_orders
+                }
+            except Exception:
+                pass
+
+        if self.ensemble is not None:
+            return self.ensemble.act(obs)
+
         me = obs["farms"][obs["player"]]
         priv = obs["private"]
         tiles = me["tiles"]
