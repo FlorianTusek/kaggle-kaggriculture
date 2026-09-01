@@ -42,8 +42,16 @@ def extract_state_features(obs: Dict[str, Any], player_idx: int) -> Dict[str, An
     features["hour"] = obs.get("hour", features["turn"] % TURNS_PER_DAY)
     
     # Player farm
+    p = player_idx if player_idx is not None else obs.get("player", 0)
+    try:
+        if hasattr(p, "item"): p = p.item()
+        if hasattr(p, "__getitem__") and not isinstance(p, (str, bytes)): p = p[0]
+        player_idx = int(p)
+    except Exception:
+        player_idx = 0
+
     farms = obs.get("farms", [])
-    if isinstance(farms, list):
+    if isinstance(farms, (list, tuple)):
         me = farms[player_idx] if player_idx < len(farms) else {}
     elif isinstance(farms, dict):
         me = farms.get(str(player_idx), farms.get(player_idx, {}))

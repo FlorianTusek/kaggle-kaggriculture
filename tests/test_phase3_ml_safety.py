@@ -197,7 +197,7 @@ class TestMLPolicyRobustnessAndFallbacks:
                 {
                     "farmer": (4, 4),
                     "hands": [],
-                    "money": 1000,
+                    "money": 100,
                     "hires_today": 0,
                     "tiles": tiles,
                 }
@@ -226,7 +226,7 @@ class TestMLPolicyRobustnessAndFallbacks:
                 {
                     "farmer": (4, 4),
                     "hands": [],
-                    "money": 1000,
+                    "money": 100,
                     "hires_today": 0,
                     "tiles": tiles,
                 }

@@ -252,9 +252,18 @@ class StrategyEnsemble:
         """
         self._init_policies()
 
-        me = obs["farms"][obs["player"]]
-        priv = obs["private"]
-        tiles = me["tiles"]
+        p = obs.get("player", 0)
+        try:
+            if hasattr(p, "item"): p = p.item()
+            if hasattr(p, "__getitem__") and not isinstance(p, (str, bytes)): p = p[0]
+            player_idx = int(p)
+        except Exception:
+            player_idx = 0
+
+        farms = obs.get("farms", [])
+        me = farms[player_idx] if isinstance(farms, (list, tuple)) and player_idx < len(farms) else {}
+        priv = obs.get("private", {})
+        tiles = me.get("tiles", [])
         day = obs.get("day", 0)
 
         # 1. Safety Layer (absolute priority)

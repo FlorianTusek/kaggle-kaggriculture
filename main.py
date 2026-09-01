@@ -552,12 +552,21 @@ class KaggricultureAgent:
                 self.bc_policy = None
 
     def act(self, obs: Dict[str, Any]) -> Dict[str, Any]:
-        me = obs["farms"][obs["player"]]
-        priv = obs["private"]
-        tiles = me["tiles"]
+        p = obs.get("player", 0)
+        try:
+            if hasattr(p, "item"): p = p.item()
+            if hasattr(p, "__getitem__") and not isinstance(p, (str, bytes)): p = p[0]
+            player_idx = int(p)
+        except Exception:
+            player_idx = 0
+
+        farms = obs.get("farms", [])
+        me = farms[player_idx] if isinstance(farms, (list, tuple)) and player_idx < len(farms) else {}
+        priv = obs.get("private", {})
+        tiles = me.get("tiles", [])
 
         ml_advice = None
-        if self.bc_policy is not None and self.bc_policy.is_loaded:
+        if self.bc_policy is not None and getattr(self.bc_policy, 'is_loaded', False):
             try:
                 ml_advice = self.bc_policy.advise(obs)
             except Exception:
@@ -578,10 +587,31 @@ class KaggricultureAgent:
             "market": market_orders
         }
 
+_global_agent = None
+
 def agent(obs, config=None):
     """Main submission agent entrypoint required by Kaggle Competition."""
-    agent_inst = KaggricultureAgent()
-    return agent_inst.act(obs)
+    global _global_agent
+    try:
+        step = obs.get("step", obs.get("turn", 0))
+        if _global_agent is None or step == 0:
+            _global_agent = KaggricultureAgent()
+        return _global_agent.act(obs)
+    except Exception as e:
+        # Ultimate fail-safe fallback: return valid basic action dict, never crash on Kaggle!
+        try:
+            p = obs.get("player", 0)
+            if hasattr(p, "item"): p = p.item()
+            if hasattr(p, "__getitem__") and not isinstance(p, (str, bytes)): p = p[0]
+            player_idx = int(p)
+            n_hands = len(obs.get("farms", [{}])[player_idx].get("hands", []))
+        except Exception:
+            n_hands = 0
+        return {
+            "farmer": ["PASS"],
+            "hands": [["PASS"] for _ in range(n_hands)],
+            "market": []
+        }
 
 if __name__ == "__main__":
     print("Self-contained Kaggriculture main.py loaded successfully.")

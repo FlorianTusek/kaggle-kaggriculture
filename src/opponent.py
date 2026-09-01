@@ -23,10 +23,17 @@ class OpponentTracker:
 
     def update(self, obs: Dict[str, Any]) -> None:
         """Update opponent state history from observation."""
-        player_idx = obs.get("player", 0)
+        p = obs.get("player", 0)
+        try:
+            if hasattr(p, "item"): p = p.item()
+            if hasattr(p, "__getitem__") and not isinstance(p, (str, bytes)): p = p[0]
+            player_idx = int(p)
+        except Exception:
+            player_idx = 0
+
         opp_idx = 1 - player_idx
         farms = obs.get("farms", [])
-        if len(farms) <= opp_idx:
+        if not isinstance(farms, (list, tuple)) or len(farms) <= opp_idx:
             return
 
         opp_farm = farms[opp_idx]

@@ -85,9 +85,16 @@ class FastStateEvaluator:
 
     def evaluate(self, obs: Dict[str, Any]) -> float:
         """Heuristic leaf evaluation estimating net total farm equity and profit delta."""
-        player_idx = obs.get("player", 0)
+        p = obs.get("player", 0)
+        try:
+            if hasattr(p, "item"): p = p.item()
+            if hasattr(p, "__getitem__") and not isinstance(p, (str, bytes)): p = p[0]
+            player_idx = int(p)
+        except Exception:
+            player_idx = 0
+
         farms = obs.get("farms", [])
-        if len(farms) <= player_idx:
+        if not isinstance(farms, (list, tuple)) or len(farms) <= player_idx:
             return 0.0
 
         me = farms[player_idx]
