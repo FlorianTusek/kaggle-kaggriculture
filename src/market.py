@@ -155,9 +155,19 @@ class MarketOptimizer:
                 qty = min(in_shed, max_lot)
                 sell_orders.append(["SELL", product, qty])
 
-        # 3. HIRE Orders (on hour 0 of day)
+        # 3. HIRE Orders (on hour 0 of day with strict capital thresholds)
         if hour == 0:
-            target_hands = self.policy.get("hands", 4)
+            day = obs.get("day", 0)
+            requested_hands = self.policy.get("hands", 4)
+            if day == 0:
+                target_hands = 0 if requested_hands == 4 else min(requested_hands, 1 if money >= 3000 else 0)
+            elif day <= 2:
+                target_hands = min(requested_hands, 2 if money >= 4000 else (1 if money >= 2000 else 0))
+            elif day <= 5:
+                target_hands = min(requested_hands, 3 if money >= 8000 else (2 if money >= 4000 else 1))
+            else:
+                target_hands = min(requested_hands, 4 if money >= 20000 else (3 if money >= 10000 else (2 if money >= 5000 else 1)))
+
             if hires_today < target_hands:
                 needed = target_hands - hires_today
                 for _ in range(needed):
@@ -181,6 +191,6 @@ class MarketOptimizer:
                     buy_orders.append(["BUY_SEED", crop, batch])
                     money -= seed_cost
 
-        # Reorder queue: Counter orders first, then Land, Animal, SELL, HIRE, BUY_SEED
-        combined_orders = counter_orders + land_orders + animal_orders + sell_orders + hire_orders + buy_orders
+        # Reorder queue: COUNTER first (feed5 defense), SELL second (liquidation), BUY_SEED third, LAND fourth, ANIMAL fifth, HIRE sixth
+        combined_orders = counter_orders + sell_orders + buy_orders + land_orders + animal_orders + hire_orders
         return combined_orders[:MAX_MARKET_ORDERS_PER_TURN]
