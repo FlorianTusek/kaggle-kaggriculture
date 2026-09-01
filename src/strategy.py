@@ -144,17 +144,13 @@ class StrategyPlanner:
         money = me.get("money", 0)
         unlocked = me.get("unlocked_quadrants", ["NW"])
 
-        if day > 15:
-            return None  # Too late to pay off new land
-
-        tiles = me.get("tiles", [])
-        free_tiles_cnt = len(_open_tiles(tiles)) if tiles else 16
+        if day > 26:
+            return None
 
         quad_order = [("NE", 1000), ("SW", 2000), ("SE", 4000)]
         for quad, cost in quad_order:
             if quad not in unlocked:
-                # Buy land if cash reserve is 1.3x cost OR if remaining free space is tight
-                if money >= cost * 1.3 or (free_tiles_cnt <= 4 and money >= cost + 200):
+                if money >= cost:
                     return quad
                 break
         return None
@@ -165,7 +161,7 @@ class StrategyPlanner:
         money = me.get("money", 0)
         phase = get_season_phase(day, self.policy)
 
-        if not phase["investing"] or day > 20 or not free_tiles:
+        if not phase["investing"] or day > 22 or not free_tiles:
             return []
 
         tiles = me.get("tiles", [])
@@ -176,11 +172,11 @@ class StrategyPlanner:
                 if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE"):
                     n_structures += 1
 
-        max_structures = min(12, len(unlocked) * 3)
+        max_structures = min(16, len(unlocked) * 4)
         if n_structures >= max_structures:
             return []
 
-        if money >= 500:
+        if money >= 400:
             pos = free_tiles[0]
             op = ["BUILD_PASTURE"] if n_structures % 2 == 0 else ["BUILD_COOP"]
             return [{
@@ -197,29 +193,21 @@ class StrategyPlanner:
         day = obs.get("day", 0)
         seeds = priv.get("seeds", {})
         tiles = me.get("tiles", [])
-        unlocked = me.get("unlocked_quadrants", ["NW"])
         phase = get_season_phase(day, self.policy)
 
         if not phase["planting"] or not free_tiles:
             return []
 
-        # Count currently planted crops
-        n_planted = 0
-        for row in tiles:
-            for t in row:
-                if isinstance(t, dict) and t.get("kind") == "PLANT":
-                    n_planted += 1
+        policy_shares = self.policy.get("crop_share")
+        if policy_shares is None and "crops" in self.policy and self.policy["crops"]:
+            policy_shares = {c: 1.0 / len(self.policy["crops"]) for c in self.policy["crops"]}
+        if not policy_shares:
+            policy_shares = {"MELON": 0.50, "STRAWBERRY": 0.30, "TOMATO": 0.10, "WHEAT": 0.05, "CARROT": 0.05}
 
-        # Scale active crops dynamically with unlocked quadrants
-        max_planted = min(64, len(unlocked) * 16)
-        if n_planted >= max_planted:
-            return []
-
-        base_shares = self.policy.get("crop_share", {"CARROT": 0.20, "TOMATO": 0.20, "WHEAT": 0.15, "STRAWBERRY": 0.25, "MELON": 0.20})
         prices = obs.get("market", {}).get("prices", {})
         
         # Calculate dynamic demand-responsive shares
-        dynamic_shares = compute_demand_responsive_shares(obs, prices, base_shares)
+        dynamic_shares = compute_demand_responsive_shares(obs, prices, policy_shares)
         
         # Sort crops by dynamic share score
         crops_ordered = sorted(dynamic_shares.keys(), key=lambda c: dynamic_shares[c], reverse=True)
@@ -238,9 +226,8 @@ class StrategyPlanner:
             clustered_tiles = free_tiles
 
         plant_jobs = []
-        max_to_plant = 16 - n_planted
         for pos in clustered_tiles:
-            if not available_seeds or len(plant_jobs) >= max_to_plant:
+            if not available_seeds:
                 break
             crop = available_seeds.pop(0)
             plant_jobs.append({

@@ -83,10 +83,10 @@ class TestStrategyPlannerLogic:
         planner = StrategyPlanner()
         me = {"money": 10000, "unlocked_quadrants": ["NW"]}
         
-        # Day 15: valid for purchase
-        assert planner.evaluate_land_purchase({"day": 15}, me) == "NE"
-        # Day 16: past cutoff
-        assert planner.evaluate_land_purchase({"day": 16}, me) is None
+        # Day 26: valid for purchase
+        assert planner.evaluate_land_purchase({"day": 26}, me) == "NE"
+        # Day 27: past cutoff
+        assert planner.evaluate_land_purchase({"day": 27}, me) is None
 
     def test_evaluate_land_purchase_quadrant_progression(self):
         planner = StrategyPlanner()
