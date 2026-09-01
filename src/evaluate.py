@@ -62,9 +62,9 @@ def evaluate_agent_matchup(
         
         while not (terminated or truncated):
             if agent_type == "ensemble" and ensemble_agent:
-                # Use full ensemble action dict decision
                 act_dict = ensemble_agent.act(env.obs)
-                farmer_act = act_dict.get("farmer", ["PASS"])[0] if act_dict.get("farmer") else "PASS"
+                env.execute_agent_turn(act_dict, player_idx=0)
+                farmer_act = act_dict.get("farmer", [["PASS"]])[0][0] if act_dict.get("farmer") else "PASS"
                 act_idx = ACTION_LOOKUP.index(farmer_act) if farmer_act in ACTION_LOOKUP else 0
             elif agent_type == "bc" and policy and policy.is_loaded:
                 act_str = policy.predict_farmer_action(env.obs)

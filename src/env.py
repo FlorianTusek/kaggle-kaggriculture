@@ -48,55 +48,87 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
             )
             self.action_space = spaces.Discrete(len(ACTION_LOOKUP))
 
+        self.reset()
+
+    def _init_state(self) -> None:
         self.current_turn = 0
         self.money = 3000.0
         self.opponent_money = 3000.0
-        self.last_score = 3000.0
-        self.obs = None
+        self.unlocked_quadrants = ["NW"]
+        self.opponent_unlocked_quadrants = ["NW"]
 
-    def _get_obs_dict(self) -> Dict[str, Any]:
-        day = self.current_turn // TURNS_PER_DAY
-        hour = self.current_turn % TURNS_PER_DAY
-        tiles = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        # Grid setup (10x10): NW is unlocked (0..4, 0..4), rest locked
+        self.tiles = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
         for y in range(BOARD_SIZE):
             for x in range(BOARD_SIZE):
                 if x >= 5 or y >= 5:
-                    tiles[y][x] = "LOCKED"
+                    self.tiles[y][x] = "LOCKED"
+
+        self.opponent_tiles = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+        for y in range(BOARD_SIZE):
+            for x in range(BOARD_SIZE):
+                if x >= 5 or y >= 5:
+                    self.opponent_tiles[y][x] = "LOCKED"
+
+        self.shed = {"WHEAT": 10, "CARROT": 10}
+        self.seeds = {"CARROT": 6, "TOMATO": 6, "WHEAT": 6, "STRAWBERRY": 4, "MELON": 4}
+        self.opponent_shed = {"WHEAT": 10, "CARROT": 10}
+        self.opponent_seeds = {"CARROT": 6, "TOMATO": 6, "WHEAT": 6}
+
+        self.market_prices = {
+            "WHEAT": 25, "CARROT": 35, "TOMATO": 60, "STRAWBERRY": 120, "MELON": 250,
+            "EGG": 40, "MILK": 100, "WOOL": 120, "FERTILIZER": 10
+        }
+
+    def _get_obs_dict(self, player_idx: int = 0) -> Dict[str, Any]:
+        day = self.current_turn // TURNS_PER_DAY
+        hour = self.current_turn % TURNS_PER_DAY
+
+        if player_idx == 0:
+            my_money, opp_money = self.money, self.opponent_money
+            my_quads, opp_quads = self.unlocked_quadrants, self.opponent_unlocked_quadrants
+            my_tiles, opp_tiles = self.tiles, self.opponent_tiles
+            my_shed, my_seeds = self.shed, self.seeds
+        else:
+            my_money, opp_money = self.opponent_money, self.money
+            my_quads, opp_quads = self.opponent_unlocked_quadrants, self.unlocked_quadrants
+            my_tiles, opp_tiles = self.opponent_tiles, self.tiles
+            my_shed, my_seeds = self.opponent_shed, self.opponent_seeds
 
         return {
-            "player": 0,
+            "player": player_idx,
             "step": self.current_turn,
             "day": day,
             "hour": hour,
             "farms": [
                 {
-                    "money": self.money,
-                    "tiles": tiles,
+                    "money": my_money,
+                    "tiles": my_tiles,
                     "farmer": [4, 4],
                     "hands": [],
-                    "unlocked_quadrants": ["NW"],
+                    "unlocked_quadrants": my_quads,
                     "hires_today": 0,
                 },
                 {
-                    "money": self.opponent_money,
-                    "tiles": tiles,
+                    "money": opp_money,
+                    "tiles": opp_tiles,
                     "farmer": [4, 4],
                     "hands": [],
-                    "unlocked_quadrants": ["NW"],
+                    "unlocked_quadrants": opp_quads,
                     "hires_today": 0,
                 }
             ],
             "private": {
-                "shed": {"WHEAT": 10, "CARROT": 10},
-                "seeds": {"CARROT": 4, "WHEAT": 4},
+                "shed": my_shed,
+                "seeds": my_seeds,
                 "inventories": [[], [], [], [], []]
             },
             "market": {
-                "inventory": {"WHEAT": 10000, "CARROT": 10000, "TOMATO": 10000},
-                "prices": {"WHEAT": 25, "CARROT": 35, "TOMATO": 60, "MELON": 250}
+                "inventory": {"WHEAT": 10000, "CARROT": 10000, "TOMATO": 10000, "STRAWBERRY": 10000, "MELON": 10000},
+                "prices": self.market_prices
             },
             "town": {
-                "unlocked_shops": ["Bakery"]
+                "unlocked_shops": ["Bakery", "Pizza Shop", "Brunch Spot", "Pet Cafe", "Smoothie Shop", "Farmers Market"]
             }
         }
 
@@ -108,40 +140,209 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
     def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         if seed is not None:
             np.random.seed(seed)
-        self.current_turn = 0
-        self.money = 3000.0
-        self.opponent_money = 3000.0
-        self.last_score = 3000.0
-        self.obs = self._get_obs_dict()
+        self._init_state()
+        self.obs = self._get_obs_dict(0)
         obs_vec = self._get_obs_vector(self.obs)
         info = {"turn": self.current_turn, "money": self.money}
         return obs_vec, info
+
+    def _unlock_quadrant(self, quad: str, player_idx: int = 0) -> None:
+        quad_bounds = {
+            "NE": (range(5, 10), range(0, 5)),
+            "SW": (range(0, 5), range(5, 10)),
+            "SE": (range(5, 10), range(5, 10)),
+        }
+        if quad not in quad_bounds:
+            return
+
+        target_tiles = self.tiles if player_idx == 0 else self.opponent_tiles
+        target_quads = self.unlocked_quadrants if player_idx == 0 else self.opponent_unlocked_quadrants
+
+        if quad not in target_quads:
+            target_quads.append(quad)
+            x_range, y_range = quad_bounds[quad]
+            for y in y_range:
+                for x in x_range:
+                    if target_tiles[y][x] == "LOCKED":
+                        target_tiles[y][x] = None
+
+    def execute_agent_turn(self, action_dict: Dict[str, Any], player_idx: int = 0) -> float:
+        """Execute full action dictionary (market orders + worker operations) for player."""
+        is_me = (player_idx == 0)
+        money = self.money if is_me else self.opponent_money
+        shed = self.shed if is_me else self.opponent_shed
+        seeds = self.seeds if is_me else self.opponent_seeds
+        tiles = self.tiles if is_me else self.opponent_tiles
+
+        start_money = money
+
+        # 1. Process Market Orders
+        market_orders = action_dict.get("market", [])
+        for order in market_orders:
+            if not isinstance(order, list) or not order:
+                continue
+            op = order[0]
+
+            if op == "BUY_LAND" and len(order) >= 2:
+                quad = order[1]
+                cost_map = {"NE": 1000, "SW": 2000, "SE": 4000}
+                cost = cost_map.get(quad, 1000)
+                if money >= cost:
+                    money -= cost
+                    self._unlock_quadrant(quad, player_idx=player_idx)
+
+            elif op == "BUY_ANIMAL" and len(order) >= 2:
+                animal = order[1]
+                cost_map = {"GOOSE": 300, "COW": 400, "SHEEP": 500}
+                cost = cost_map.get(animal, 300)
+                target_kind = "COOP" if animal == "GOOSE" else "PASTURE"
+                if money >= cost:
+                    # Find unpopulated structure tile
+                    for row in tiles:
+                        for tile in row:
+                            if isinstance(tile, dict) and tile.get("kind") == target_kind and not tile.get("animal"):
+                                tile["animal"] = animal
+                                tile["fed_today"] = True
+                                tile["cared_today"] = True
+                                tile["yield_units"] = 1
+                                money -= cost
+                                break
+
+            elif op == "BUY_SEED" and len(order) >= 3:
+                crop, qty = order[1], order[2]
+                cost_per_seed = CROPS.get(crop, {}).get("seed", 20)
+                total_cost = cost_per_seed * qty
+                if money >= total_cost:
+                    money -= total_cost
+                    seeds[crop] = seeds.get(crop, 0) + qty
+
+            elif op == "SELL" and len(order) >= 3:
+                product, qty = order[1], order[2]
+                avail = shed.get(product, 0)
+                sell_qty = min(avail, qty)
+                if sell_qty > 0:
+                    shed[product] -= sell_qty
+                    price = self.market_prices.get(product, 30)
+                    money += sell_qty * price
+
+        # 2. Process Worker Ops (Planting, Building, Harvesting)
+        worker_ops = action_dict.get("farmer", [])
+        for hand_ops in action_dict.get("hands", []):
+            worker_ops.extend(hand_ops)
+
+        for op in worker_ops:
+            if not isinstance(op, list) or not op:
+                continue
+            cmd = op[0]
+
+            if cmd == "PLANT" and len(order) >= 2:
+                crop = op[1] if len(op) >= 2 else "CARROT"
+                if seeds.get(crop, 0) > 0:
+                    for y in range(BOARD_SIZE):
+                        for x in range(BOARD_SIZE):
+                            if tiles[y][x] is None:
+                                seeds[crop] -= 1
+                                tiles[y][x] = {
+                                    "kind": "PLANT",
+                                    "crop": crop,
+                                    "planted_day": self.current_turn // TURNS_PER_DAY,
+                                    "watered_today": True,
+                                    "yield_units": 2,
+                                }
+                                break
+                        else:
+                            continue
+                        break
+
+            elif cmd == "BUILD_PASTURE":
+                for y in range(BOARD_SIZE):
+                    for x in range(BOARD_SIZE):
+                        if tiles[y][x] is None:
+                            tiles[y][x] = {"kind": "PASTURE", "animal": None}
+                            break
+                    else:
+                        continue
+                    break
+
+            elif cmd == "BUILD_COOP":
+                for y in range(BOARD_SIZE):
+                    for x in range(BOARD_SIZE):
+                        if tiles[y][x] is None:
+                            tiles[y][x] = {"kind": "COOP", "animal": None}
+                            break
+                    else:
+                        continue
+                    break
+
+            elif cmd == "HARVEST":
+                for y in range(BOARD_SIZE):
+                    for x in range(BOARD_SIZE):
+                        t = tiles[y][x]
+                        if isinstance(t, dict):
+                            if t.get("kind") == "PLANT":
+                                crop = t.get("crop", "CARROT")
+                                shed[crop] = shed.get(crop, 0) + max(2, t.get("yield_units", 2))
+                                info = CROPS.get(crop, {})
+                                if info.get("ongoing"):
+                                    t["yield_units"] = 0
+                                else:
+                                    tiles[y][x] = None
+                                break
+                            elif t.get("kind") in ("COOP", "PASTURE") and t.get("animal"):
+                                prod_map = {"GOOSE": "EGG", "COW": "MILK", "SHEEP": "WOOL"}
+                                prod = prod_map.get(t["animal"], "EGG")
+                                shed[prod] = shed.get(prod, 0) + max(2, t.get("yield_units", 2))
+                                t["yield_units"] = 0
+                                break
+
+        if is_me:
+            self.money = money
+        else:
+            self.opponent_money = money
+
+        return money - start_money
 
     def step(self, action_idx: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         self.current_turn += 1
         day = self.current_turn // TURNS_PER_DAY
         hour = self.current_turn % TURNS_PER_DAY
 
-        # Decode discrete action index
+        # Decode action index for Gym step
         act_name = ACTION_LOOKUP[action_idx] if 0 <= action_idx < len(ACTION_LOOKUP) else "PASS"
 
-        # Execute opponent turn
-        opp_obs = self._get_obs_dict()
-        opp_obs["player"] = 1
-        opp_action = self.opponent_agent.act(opp_obs)
+        # Construct action dict for player
+        my_obs = self._get_obs_dict(0)
+        agent_action = self.opponent_agent.act(my_obs)
 
-        # Economic simulation update
-        earned_this_turn = 0.0
-        if hour == 23 and day > 2:
-            earned_this_turn = 450.0 + (50.0 if act_name != "PASS" else 0.0)
-            self.money += earned_this_turn
-            self.opponent_money += 400.0
+        # Run agent turn
+        earned_this_turn = self.execute_agent_turn(agent_action, player_idx=0)
+
+        # Execute opponent turn
+        opp_obs = self._get_obs_dict(1)
+        opp_action = self.opponent_agent.act(opp_obs)
+        self.execute_agent_turn(opp_action, player_idx=1)
+
+        # Daily yield accumulation & tile refresh (on hour 23)
+        if hour == 23:
+            for tiles, shed in [(self.tiles, self.shed), (self.opponent_tiles, self.opponent_shed)]:
+                for row in tiles:
+                    for t in row:
+                        if isinstance(t, dict):
+                            if t.get("kind") == "PLANT":
+                                crop = t.get("crop", "CARROT")
+                                yield_mult = 5 if crop in ("MELON", "STRAWBERRY") else 3
+                                shed[crop] = shed.get(crop, 0) + yield_mult
+                            elif t.get("kind") in ("COOP", "PASTURE") and t.get("animal"):
+                                prod_map = {"GOOSE": "EGG", "COW": "MILK", "SHEEP": "WOOL"}
+                                prod = prod_map.get(t["animal"], "EGG")
+                                yield_mult = 4 if prod in ("MILK", "WOOL") else 3
+                                shed[prod] = shed.get(prod, 0) + yield_mult
 
         reward = earned_this_turn
         terminated = self.current_turn >= self.max_turns
         truncated = False
 
-        self.obs = self._get_obs_dict()
+        self.obs = self._get_obs_dict(0)
         obs_vec = self._get_obs_vector(self.obs)
         info = {
             "turn": self.current_turn,
@@ -154,3 +355,4 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
 
     def render(self, mode: str = "human") -> None:
         print(f"[Turn {self.current_turn}/720] Money: ${self.money:,.2f} | Opponent: ${self.opponent_money:,.2f}")
+
