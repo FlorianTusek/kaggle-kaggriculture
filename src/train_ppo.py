@@ -21,6 +21,9 @@ import time
 import shutil
 import argparse
 
+# Ensure real-time unbuffered logging
+sys.stdout.reconfigure(line_buffering=True)
+
 # Prioritize base Python site-packages with CUDA 12.1 PyTorch
 sys.path.insert(0, r"C:\Python310\lib\site-packages")
 from pathlib import Path
@@ -444,9 +447,22 @@ def train_ppo_league(
     jsonl_path = os.path.join(output_dir, "league_history.jsonl")
     start_time = time.time()
     total_timesteps_trained = (start_gen - 1) * timesteps_per_gen
+    target_end_gen = max(n_generations, start_gen + n_generations - 1) if start_gen > n_generations else n_generations
+    gen = start_gen
+
+    summary = {
+        "current_generation": start_gen,
+        "target_generations": target_end_gen,
+        "total_timesteps": total_timesteps_trained,
+        "device": str(device),
+        "fps": 0.0,
+        "uptime_seconds": 0.0,
+        "last_eval": {},
+        "champion_model": champion_path
+    }
 
     try:
-        for gen in range(start_gen, n_generations + 1):
+        for gen in range(start_gen, target_end_gen + 1):
             gen_start_time = time.time()
 
             # Train generation
@@ -476,10 +492,10 @@ def train_ppo_league(
                 eval_metrics = evaluate_against_benchmarks(model, n_episodes=eval_episodes, include_top_meta=True)
                 base_b = eval_metrics.get("vs_baseline", {}).get("mean_bank", 0)
                 meta_b = eval_metrics.get("vs_top_meta", {}).get("mean_bank", 0)
-                print(f"[Gen {gen:05d}/{n_generations:,}] FPS: {gen_fps:.0f} | Eval vs Base: ${base_b:,.0f} | vs Top Meta: ${meta_b:,.0f} | Total Steps: {total_timesteps_trained:,}")
+                print(f"[Gen {gen:05d}/{target_end_gen:,}] FPS: {gen_fps:.0f} | Eval vs Base: ${base_b:,.0f} | vs Top Meta: ${meta_b:,.0f} | Total Steps: {total_timesteps_trained:,}")
             elif gen % 10 == 0:
                 elapsed = time.time() - start_time
-                print(f"[Gen {gen:05d}/{n_generations:,}] FPS: {gen_fps:.0f} | Total Steps: {total_timesteps_trained:,} | Uptime: {elapsed/60:.1f}m")
+                print(f"[Gen {gen:05d}/{target_end_gen:,}] FPS: {gen_fps:.0f} | Total Steps: {total_timesteps_trained:,} | Uptime: {elapsed/60:.1f}m")
 
             # Stream telemetry to JSONL
             record = {
@@ -495,7 +511,7 @@ def train_ppo_league(
             # Update summary JSON
             summary = {
                 "current_generation": gen,
-                "target_generations": n_generations,
+                "target_generations": target_end_gen,
                 "total_timesteps": total_timesteps_trained,
                 "device": str(device),
                 "fps": float(gen_fps),

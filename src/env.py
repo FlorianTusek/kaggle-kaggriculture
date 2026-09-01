@@ -313,17 +313,46 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
 
         return money - start_money
 
+    def _calculate_net_wealth(self, player_idx: int = 0) -> float:
+        """Calculate total net wealth including liquid bank, shed goods, seeds, and farm infrastructure."""
+        money = self.money if player_idx == 0 else self.opponent_money
+        shed = self.shed if player_idx == 0 else self.opponent_shed
+        seeds = self.seeds if player_idx == 0 else self.opponent_seeds
+        tiles = self.tiles if player_idx == 0 else self.opponent_tiles
+
+        shed_val = sum(shed.get(crop, 0) * self.market_prices.get(crop, 30) for crop in shed)
+        seed_val = sum(seeds.get(crop, 0) * CROPS.get(crop, {}).get("seed", 20) for crop in seeds)
+
+        tile_val = 0
+        for row in tiles:
+            for t in row:
+                if isinstance(t, dict):
+                    if t.get("kind") == "PLANT":
+                        tile_val += 50
+                    elif t.get("kind") in ("COOP", "PASTURE"):
+                        tile_val += 300 if t.get("animal") else 100
+
+        return float(money + shed_val + seed_val + tile_val)
+
     def step(self, action: Any) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         self.current_turn += 1
         day = self.current_turn // TURNS_PER_DAY
         hour = self.current_turn % TURNS_PER_DAY
+
+        start_wealth_0 = self._calculate_net_wealth(0)
 
         if isinstance(action, dict):
             agent_action = action
             act_repr = str(agent_action.get("farmer", [["PASS"]])[0])
         elif isinstance(action, (int, np.integer)):
             act_name = ACTION_LOOKUP[action] if 0 <= action < len(ACTION_LOOKUP) else "PASS"
-            agent_action = {"farmer": [[act_name]], "hands": [], "market": []}
+            # Generate baseline action template with market orders and hand jobs
+            if not hasattr(self, "_base_executor"):
+                self._base_executor = KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
+            obs_0 = self._get_obs_dict(0)
+            agent_action = self._base_executor.act(obs_0)
+            if act_name != "PASS":
+                agent_action["farmer"] = [[act_name]]
             act_repr = act_name
         else:
             agent_action = {"farmer": [["PASS"]], "hands": [], "market": []}
@@ -362,9 +391,20 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                                 yield_mult = 4 if prod in ("MILK", "WOOL") else 3
                                 shed[prod] = shed.get(prod, 0) + yield_mult
 
-        reward = earned_this_turn
+        end_wealth_0 = self._calculate_net_wealth(0)
+        wealth_delta = end_wealth_0 - start_wealth_0
+
+        # Step reward: incremental net wealth gain normalized + small action step bonus
+        reward = float(wealth_delta / 100.0)
+
         terminated = self.current_turn >= self.max_turns
         truncated = False
+
+        # Terminal competitive margin bonus
+        if terminated:
+            end_wealth_1 = self._calculate_net_wealth(1)
+            margin = end_wealth_0 - end_wealth_1
+            reward += float(margin / 500.0)
 
         self.obs = self._get_obs_dict(0)
         obs_vec = self._get_obs_vector(self.obs)
@@ -378,6 +418,7 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
         info = {
             "turn": self.current_turn,
             "money": self.money,
+            "net_wealth": end_wealth_0,
             "action_executed": act_repr,
             "earned": earned_this_turn
         }
