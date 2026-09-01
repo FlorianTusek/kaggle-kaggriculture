@@ -33,14 +33,14 @@ MOVE_OP = {(0, -1): "NORTH", (0, 1): "SOUTH", (1, 0): "EAST", (-1, 0): "WEST"}
 
 DEFAULT_POLICY = {
     'hands': 4,
-    'crops': ['CARROT', 'TOMATO', 'WHEAT'],
-    'crop_share': {'CARROT': 0.4, 'TOMATO': 0.3, 'WHEAT': 0.3},
+    'crops': ['CARROT', 'TOMATO', 'WHEAT', 'STRAWBERRY', 'MELON'],
+    'crop_share': {'CARROT': 0.25, 'TOMATO': 0.25, 'WHEAT': 0.20, 'STRAWBERRY': 0.15, 'MELON': 0.15},
     'harvest_asap': False,
     'seed_batch': 6,
     'seed_stock': 12,
-    'sell_order': ['CARROT', 'TOMATO', 'WHEAT', 'STRAWBERRY', 'MELON'],
-    'sell_lots': {'CARROT': 15, 'TOMATO': 10, 'WHEAT': 20, 'MELON': 10},
-    'price_floors': {'CARROT': 10, 'TOMATO': 20, 'WHEAT': 5, 'MELON': 100},
+    'sell_order': ['MELON', 'STRAWBERRY', 'MILK', 'WOOL', 'EGG', 'TOMATO', 'CARROT', 'WHEAT', 'FERTILIZER'],
+    'sell_lots': {'MELON': 5, 'STRAWBERRY': 10, 'MILK': 10, 'WOOL': 10, 'EGG': 15, 'TOMATO': 10, 'CARROT': 15, 'WHEAT': 20, 'FERTILIZER': 20},
+    'price_floors': {'MELON': 150, 'STRAWBERRY': 80, 'MILK': 80, 'WOOL': 100, 'EGG': 30, 'TOMATO': 35, 'CARROT': 20, 'WHEAT': 10, 'FERTILIZER': 5},
     'plant_until_day': 25,
     'liquidate_from_day': 27,
     'carry': 6,
@@ -84,16 +84,20 @@ def _step_toward(pos: Tuple[int, int], target: Tuple[int, int]) -> List[str]:
     return ["PASS"]
 
 def _shed_tile(tiles: List[List[Any]]) -> Tuple[int, int]:
+    if not tiles:
+        return SHED_TILES[0]
     for (x, y) in SHED_TILES:
-        if tiles[y][x] != "LOCKED":
+        if y < len(tiles) and x < len(tiles[y]) and tiles[y][x] != "LOCKED":
             return (x, y)
     return SHED_TILES[0]
 
 def _open_tiles(tiles: List[List[Any]]) -> List[Tuple[int, int]]:
+    if not tiles:
+        return []
     sx, sy = _shed_tile(tiles)
     out = []
-    for y in range(BOARD):
-        for x in range(BOARD):
+    for y in range(min(BOARD, len(tiles))):
+        for x in range(min(BOARD, len(tiles[y]))):
             if tiles[y][x] is None:
                 out.append((x, y))
     out.sort(key=lambda p: (_dist(p, (sx, sy)), p[1], p[0]))
@@ -232,24 +236,57 @@ class StrategyPlanner:
             return max(1, base_hands - 2)
         return base_hands
 
+    def evaluate_land_purchase(self, obs: Dict[str, Any], me: Dict[str, Any]) -> Optional[str]:
+        day = obs.get("day", 0)
+        money = me.get("money", 0)
+        unlocked = me.get("unlocked_quadrants", ["NW"])
+        if day > 20:
+            return None
+        tiles = me.get("tiles", [])
+        free_tiles_cnt = len(_open_tiles(tiles))
+        quad_order = [("NE", 1000), ("SW", 2000), ("SE", 4000)]
+        for quad, cost in quad_order:
+            if quad not in unlocked:
+                if money >= cost * 1.3 or (free_tiles_cnt <= 4 and money >= cost + 200):
+                    return quad
+                break
+        return None
+
+    def plan_structure_building_jobs(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], free_tiles: List[Tuple[int, int]]) -> List[Dict[str, Any]]:
+        day = obs.get("day", 0)
+        money = me.get("money", 0)
+        phase = get_season_phase(day, self.policy)
+        if not phase["investing"] or day > 18 or not free_tiles:
+            return []
+        tiles = me.get("tiles", [])
+        n_structures = 0
+        for row in tiles:
+            for t in row:
+                if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE"):
+                    n_structures += 1
+        if n_structures >= 4:
+            return []
+        if money >= 600:
+            pos = free_tiles[0]
+            op = ["BUILD_PASTURE"] if n_structures % 2 == 0 else ["BUILD_COOP"]
+            return [{"pos": pos, "op": op, "need": None, "priority": 8.5}]
+        return []
+
     def plan_planting_jobs(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], free_tiles: List[Tuple[int, int]]) -> List[Dict[str, Any]]:
         day = obs.get("day", 0)
         seeds = priv.get("seeds", {})
         phase = get_season_phase(day, self.policy)
         if not phase["planting"] or not free_tiles:
             return []
-        
-        base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+        base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
         prices = obs.get("market", {}).get("prices", {})
         dynamic_shares = compute_demand_responsive_shares(obs, prices, base_shares)
         crops_ordered = sorted(dynamic_shares.keys(), key=lambda c: dynamic_shares[c], reverse=True)
-
         available_seeds = []
         for crop in crops_ordered:
             cnt = seeds.get(crop, 0)
             if cnt > 0:
                 available_seeds.extend([crop] * cnt)
-
         plant_jobs = []
         for pos in free_tiles:
             if not available_seeds:
@@ -371,6 +408,7 @@ class MarketOptimizer:
         self.policy = policy if policy is not None else {}
         self.price_tracker = PriceTracker(history_len=48)
         self.opponent_tracker = OpponentTracker()
+        self.strategy_planner = StrategyPlanner(self.policy)
 
     def plan_market_orders(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[List[Any]]:
         day = obs.get("day", 0)
@@ -386,12 +424,32 @@ class MarketOptimizer:
         self.opponent_tracker.update(obs)
 
         counter_orders = self.opponent_tracker.get_counter_strategy_orders(obs, me, priv)
-        sell_orders, buy_orders, hire_orders = [], [], []
+        land_orders, animal_orders, sell_orders, buy_orders, hire_orders = [], [], [], [], []
 
-        # 1. SELL Orders (reordered early for liquidity)
-        sell_order_list = self.policy.get("sell_order", ["CARROT", "TOMATO", "WHEAT", "MELON", "STRAWBERRY"])
-        sell_lots = self.policy.get("sell_lots", {"CARROT": 15, "TOMATO": 10, "WHEAT": 20, "MELON": 10})
-        floors = self.policy.get("price_floors", {"CARROT": 10, "TOMATO": 20, "WHEAT": 5, "MELON": 100})
+        quad_to_buy = self.strategy_planner.evaluate_land_purchase(obs, me)
+        if quad_to_buy:
+            land_orders.append(["BUY_LAND", quad_to_buy])
+
+        tiles = me.get("tiles", [])
+        for row in tiles:
+            for tile in row:
+                if isinstance(tile, dict):
+                    kind = tile.get("kind")
+                    animal = tile.get("animal")
+                    if kind == "COOP" and not animal and money >= 300:
+                        animal_orders.append(["BUY_ANIMAL", "GOOSE"])
+                        money -= 300
+                    elif kind == "PASTURE" and not animal:
+                        if money >= 500:
+                            animal_orders.append(["BUY_ANIMAL", "SHEEP"])
+                            money -= 500
+                        elif money >= 400:
+                            animal_orders.append(["BUY_ANIMAL", "COW"])
+                            money -= 400
+
+        sell_order_list = self.policy.get("sell_order", ["MELON", "STRAWBERRY", "MILK", "WOOL", "EGG", "TOMATO", "CARROT", "WHEAT", "FERTILIZER"])
+        sell_lots = self.policy.get("sell_lots", {"MELON": 5, "STRAWBERRY": 10, "MILK": 10, "WOOL": 10, "EGG": 15, "TOMATO": 10, "CARROT": 15, "WHEAT": 20, "FERTILIZER": 20})
+        floors = self.policy.get("price_floors", {"MELON": 150, "STRAWBERRY": 80, "MILK": 80, "WOOL": 100, "EGG": 30, "TOMATO": 35, "CARROT": 20, "WHEAT": 10, "FERTILIZER": 5})
 
         for product in sell_order_list:
             in_shed = shed.get(product, 0)
@@ -422,7 +480,7 @@ class MarketOptimizer:
         if phase["planting"]:
             stock_target = self.policy.get("seed_stock", 12)
             batch = self.policy.get("seed_batch", 6)
-            base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+            base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
             crop_shares = compute_demand_responsive_shares(obs, prices, base_shares)
 
             for crop, share in crop_shares.items():
@@ -435,7 +493,7 @@ class MarketOptimizer:
                     buy_orders.append(["BUY_SEED", crop, batch])
                     money -= seed_cost
 
-        combined = counter_orders + sell_orders + hire_orders + buy_orders
+        combined = counter_orders + land_orders + animal_orders + sell_orders + hire_orders + buy_orders
         return combined[:MAX_MARKET_ORDERS]
 
 # --- Main Agent Controller & Entrypoint ---
@@ -507,9 +565,10 @@ class KaggricultureAgent:
 
         safety_jobs = self.safety_layer.get_jobs(obs, me, priv)
         free_tiles = _open_tiles(tiles)
+        struct_jobs = self.strategy_planner.plan_structure_building_jobs(obs, me, priv, free_tiles)
         plant_jobs = self.strategy_planner.plan_planting_jobs(obs, me, priv, free_tiles)
 
-        all_jobs = safety_jobs + plant_jobs
+        all_jobs = safety_jobs + struct_jobs + plant_jobs
         worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs, ml_advice=ml_advice)
         market_orders = self.market_optimizer.plan_market_orders(obs, me, priv)
 

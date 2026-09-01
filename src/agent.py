@@ -13,18 +13,19 @@ from src.models import BehavioralCloningPolicy
 
 DEFAULT_POLICY = {
     'hands': 4,
-    'crops': ['CARROT', 'TOMATO', 'WHEAT'],
-    'crop_share': {'CARROT': 0.4, 'TOMATO': 0.3, 'WHEAT': 0.3},
+    'crops': ['CARROT', 'TOMATO', 'WHEAT', 'STRAWBERRY', 'MELON'],
+    'crop_share': {'CARROT': 0.25, 'TOMATO': 0.25, 'WHEAT': 0.20, 'STRAWBERRY': 0.15, 'MELON': 0.15},
     'harvest_asap': False,
     'seed_batch': 6,
     'seed_stock': 12,
-    'sell_order': ['CARROT', 'TOMATO', 'WHEAT', 'STRAWBERRY', 'MELON'],
-    'sell_lots': {'CARROT': 15, 'TOMATO': 10, 'WHEAT': 20, 'MELON': 10},
-    'price_floors': {'CARROT': 10, 'TOMATO': 20, 'WHEAT': 5, 'MELON': 100},
+    'sell_order': ['MELON', 'STRAWBERRY', 'MILK', 'WOOL', 'EGG', 'TOMATO', 'CARROT', 'WHEAT', 'FERTILIZER'],
+    'sell_lots': {'MELON': 5, 'STRAWBERRY': 10, 'MILK': 10, 'WOOL': 10, 'EGG': 15, 'TOMATO': 10, 'CARROT': 15, 'WHEAT': 20, 'FERTILIZER': 20},
+    'price_floors': {'MELON': 150, 'STRAWBERRY': 80, 'MILK': 80, 'WOOL': 100, 'EGG': 30, 'TOMATO': 35, 'CARROT': 20, 'WHEAT': 10, 'FERTILIZER': 5},
     'plant_until_day': 25,
     'liquidate_from_day': 27,
     'carry': 6,
     'use_ml_policy': True,
+    'use_ensemble': True,
 }
 
 def _assign_worker_ops(obs: Dict[str, Any], policy: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], jobs: List[Dict[str, Any]], ml_advice: Optional[Dict[str, Any]] = None) -> List[List[str]]:
@@ -134,11 +135,12 @@ class KaggricultureAgent:
         # 1. Collect Safety Layer jobs (highest priority)
         safety_jobs = self.safety_layer.get_jobs(obs, me, priv)
 
-        # 2. Collect Strategy Planner jobs (planting)
+        # 2. Collect Structure building jobs and Strategy Planner jobs (planting)
         free_tiles = _open_tiles(tiles)
+        struct_jobs = self.strategy_planner.plan_structure_building_jobs(obs, me, priv, free_tiles)
         plant_jobs = self.strategy_planner.plan_planting_jobs(obs, me, priv, free_tiles)
 
-        all_jobs = safety_jobs + plant_jobs
+        all_jobs = safety_jobs + struct_jobs + plant_jobs
 
         # 3. Assign worker actions (augmented by ML policy for idle workers)
         worker_ops = _assign_worker_ops(obs, self.policy, me, priv, all_jobs, ml_advice=ml_advice)

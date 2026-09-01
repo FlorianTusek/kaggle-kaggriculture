@@ -50,7 +50,10 @@ def get_season_phase(day: int, policy: Dict[str, Any]) -> Dict[str, bool]:
 def compute_demand_responsive_shares(obs: Dict[str, Any], prices: Dict[str, float], base_shares: Optional[Dict[str, float]] = None) -> Dict[str, float]:
     """Dynamically adjust crop planting shares based on market price signals and unlocked town shop demand."""
     if base_shares is None:
-        base_shares = {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3}
+        if prices and set(prices.keys()) == {"CARROT", "TOMATO", "WHEAT"}:
+            base_shares = {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3}
+        else:
+            base_shares = {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15}
 
     scores = {}
     unlocked_shops = obs.get("town", {}).get("unlocked_shops", [])
@@ -93,16 +96,20 @@ def _step_toward(pos: Tuple[int, int], target: Tuple[int, int]) -> List[str]:
     return ["PASS"]
 
 def _shed_tile(tiles: List[List[Any]]) -> Tuple[int, int]:
+    if not tiles:
+        return SHED_TILES[0]
     for (x, y) in SHED_TILES:
-        if tiles[y][x] != "LOCKED":
+        if y < len(tiles) and x < len(tiles[y]) and tiles[y][x] != "LOCKED":
             return (x, y)
     return SHED_TILES[0]
 
 def _open_tiles(tiles: List[List[Any]]) -> List[Tuple[int, int]]:
+    if not tiles:
+        return []
     sx, sy = _shed_tile(tiles)
     out = []
-    for y in range(BOARD_SIZE):
-        for x in range(BOARD_SIZE):
+    for y in range(min(BOARD_SIZE, len(tiles))):
+        for x in range(min(BOARD_SIZE, len(tiles[y]))):
             if tiles[y][x] is None:
                 out.append((x, y))
     out.sort(key=lambda p: (_dist(p, (sx, sy)), p[1], p[0]))
@@ -140,14 +147,48 @@ class StrategyPlanner:
         if day > 15:
             return None  # Too late to pay off new land
 
+        tiles = me.get("tiles", [])
+        free_tiles_cnt = len(_open_tiles(tiles)) if tiles else 16
+
         quad_order = [("NE", 1000), ("SW", 2000), ("SE", 4000)]
         for quad, cost in quad_order:
             if quad not in unlocked:
-                # Require 2x cost reserve before buying land
-                if money >= cost * 2:
+                # Buy land if cash reserve is 1.3x cost OR if remaining free space is tight
+                if money >= cost * 1.3 or (free_tiles_cnt <= 4 and money >= cost + 200):
                     return quad
                 break
         return None
+
+    def plan_structure_building_jobs(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], free_tiles: List[Tuple[int, int]]) -> List[Dict[str, Any]]:
+        """Generate jobs to build animal structures (PASTURE / COOP) when reserves allow."""
+        day = obs.get("day", 0)
+        money = me.get("money", 0)
+        phase = get_season_phase(day, self.policy)
+
+        if not phase["investing"] or day > 18 or not free_tiles:
+            return []
+
+        tiles = me.get("tiles", [])
+        n_structures = 0
+        for row in tiles:
+            for t in row:
+                if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE"):
+                    n_structures += 1
+
+        if n_structures >= 4:
+            return []
+
+        if money >= 600:
+            pos = free_tiles[0]
+            op = ["BUILD_PASTURE"] if n_structures % 2 == 0 else ["BUILD_COOP"]
+            return [{
+                "pos": pos,
+                "op": op,
+                "need": None,
+                "priority": 8.5
+            }]
+
+        return []
 
     def plan_planting_jobs(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any], free_tiles: List[Tuple[int, int]]) -> List[Dict[str, Any]]:
         """Generate planting jobs for available free tiles using demand-responsive shares."""
@@ -158,7 +199,7 @@ class StrategyPlanner:
         if not phase["planting"] or not free_tiles:
             return []
 
-        base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+        base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
         prices = obs.get("market", {}).get("prices", {})
         
         # Calculate dynamic demand-responsive shares

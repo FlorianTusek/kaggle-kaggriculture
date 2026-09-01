@@ -85,6 +85,8 @@ class MarketOptimizer:
         self.policy = policy if policy is not None else {}
         self.price_tracker = PriceTracker(history_len=48)
         self.opponent_tracker = OpponentTracker()
+        from src.strategy import StrategyPlanner
+        self.strategy_planner = StrategyPlanner(self.policy)
 
     def plan_market_orders(self, obs: Dict[str, Any], me: Dict[str, Any], priv: Dict[str, Any]) -> List[List[Any]]:
         """Generate an optimized list of up to 10 market orders for the current turn."""
@@ -103,14 +105,39 @@ class MarketOptimizer:
         self.opponent_tracker.update(obs)
 
         counter_orders = self.opponent_tracker.get_counter_strategy_orders(obs, me, priv)
+        land_orders = []
+        animal_orders = []
         sell_orders = []
         buy_orders = []
         hire_orders = []
 
-        # 1. SELL Orders (queued early to fund buys)
-        sell_order_list = self.policy.get("sell_order", ["CARROT", "TOMATO", "WHEAT", "MELON", "STRAWBERRY"])
-        sell_lots = self.policy.get("sell_lots", {"CARROT": 15, "TOMATO": 10, "WHEAT": 20, "MELON": 10})
-        floors = self.policy.get("price_floors", {"CARROT": 10, "TOMATO": 20, "WHEAT": 5, "MELON": 100})
+        # 0. LAND PURCHASE Orders (BUY_LAND)
+        quad_to_buy = self.strategy_planner.evaluate_land_purchase(obs, me)
+        if quad_to_buy:
+            land_orders.append(["BUY_LAND", quad_to_buy])
+
+        # 1. ANIMAL PURCHASE Orders (BUY_ANIMAL)
+        tiles = me.get("tiles", [])
+        for row in tiles:
+            for tile in row:
+                if isinstance(tile, dict):
+                    kind = tile.get("kind")
+                    animal = tile.get("animal")
+                    if kind == "COOP" and not animal and money >= 300:
+                        animal_orders.append(["BUY_ANIMAL", "GOOSE"])
+                        money -= 300
+                    elif kind == "PASTURE" and not animal:
+                        if money >= 500:
+                            animal_orders.append(["BUY_ANIMAL", "SHEEP"])
+                            money -= 500
+                        elif money >= 400:
+                            animal_orders.append(["BUY_ANIMAL", "COW"])
+                            money -= 400
+
+        # 2. SELL Orders (queued early to fund buys)
+        sell_order_list = self.policy.get("sell_order", ["MELON", "STRAWBERRY", "MILK", "WOOL", "EGG", "TOMATO", "CARROT", "WHEAT", "FERTILIZER"])
+        sell_lots = self.policy.get("sell_lots", {"MELON": 5, "STRAWBERRY": 10, "MILK": 10, "WOOL": 10, "EGG": 15, "TOMATO": 10, "CARROT": 15, "WHEAT": 20, "FERTILIZER": 20})
+        floors = self.policy.get("price_floors", {"MELON": 150, "STRAWBERRY": 80, "MILK": 80, "WOOL": 100, "EGG": 30, "TOMATO": 35, "CARROT": 20, "WHEAT": 10, "FERTILIZER": 5})
 
         for product in sell_order_list:
             in_shed = shed.get(product, 0)
@@ -132,7 +159,7 @@ class MarketOptimizer:
                     qty = min(in_shed, dynamic_lot)
                     sell_orders.append(["SELL", product, qty])
 
-        # 2. HIRE Orders (on hour 0 of day)
+        # 3. HIRE Orders (on hour 0 of day)
         if hour == 0:
             target_hands = self.policy.get("hands", 4)
             if hires_today < target_hands:
@@ -140,11 +167,11 @@ class MarketOptimizer:
                 for _ in range(needed):
                     hire_orders.append(["HIRE"])
 
-        # 3. BUY_SEED Orders using demand-responsive crop shares
+        # 4. BUY_SEED Orders using demand-responsive crop shares
         if phase["planting"]:
             stock_target = self.policy.get("seed_stock", 12)
             batch = self.policy.get("seed_batch", 6)
-            base_shares = self.policy.get("crop_share", {"CARROT": 0.4, "TOMATO": 0.3, "WHEAT": 0.3})
+            base_shares = self.policy.get("crop_share", {"CARROT": 0.25, "TOMATO": 0.25, "WHEAT": 0.20, "STRAWBERRY": 0.15, "MELON": 0.15})
             crop_shares = compute_demand_responsive_shares(obs, prices, base_shares)
 
             for crop, share in crop_shares.items():
@@ -157,6 +184,6 @@ class MarketOptimizer:
                     buy_orders.append(["BUY_SEED", crop, batch])
                     money -= seed_cost
 
-        # Reorder queue: Counter orders (Feed5-first) first, then SELL, HIRE, BUY_SEED
-        combined_orders = counter_orders + sell_orders + hire_orders + buy_orders
+        # Reorder queue: Counter orders first, then Land, Animal, SELL, HIRE, BUY_SEED
+        combined_orders = counter_orders + land_orders + animal_orders + sell_orders + hire_orders + buy_orders
         return combined_orders[:MAX_MARKET_ORDERS_PER_TURN]

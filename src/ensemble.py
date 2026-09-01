@@ -260,11 +260,12 @@ class StrategyEnsemble:
         # 1. Safety Layer (absolute priority)
         safety_jobs = self.safety_layer.get_jobs(obs, me, priv)
 
-        # 2. Strategy Planner (planting)
+        # 2. Strategy Planner (structure building & planting)
         free_tiles = _open_tiles(tiles)
+        struct_jobs = self.strategy_planner.plan_structure_building_jobs(obs, me, priv, free_tiles)
         plant_jobs = self.strategy_planner.plan_planting_jobs(obs, me, priv, free_tiles)
 
-        all_jobs = safety_jobs + plant_jobs
+        all_jobs = safety_jobs + struct_jobs + plant_jobs
 
         # 3. Ensemble voting for idle farmer action
         ensemble_action = None
