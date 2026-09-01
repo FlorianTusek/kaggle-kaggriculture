@@ -63,19 +63,16 @@ def evaluate_agent_matchup(
         while not (terminated or truncated):
             if agent_type == "ensemble" and ensemble_agent:
                 act_dict = ensemble_agent.act(env.obs)
-                env.execute_agent_turn(act_dict, player_idx=0)
-                farmer_act = act_dict.get("farmer", [["PASS"]])[0][0] if act_dict.get("farmer") else "PASS"
-                act_idx = ACTION_LOOKUP.index(farmer_act) if farmer_act in ACTION_LOOKUP else 0
             elif agent_type == "bc" and policy and policy.is_loaded:
                 act_str = policy.predict_farmer_action(env.obs)
-                act_idx = ACTION_LOOKUP.index(act_str) if act_str in ACTION_LOOKUP else 0
+                act_dict = {"farmer": [[act_str]], "hands": [], "market": []}
             elif agent_type == "ppo" and policy and policy.is_loaded:
                 act_str = policy.predict_action(env.obs)
-                act_idx = ACTION_LOOKUP.index(act_str) if act_str in ACTION_LOOKUP else 0
+                act_dict = {"farmer": [[act_str]], "hands": [], "market": []}
             else:
-                act_idx = 0
+                act_dict = {"farmer": [["PASS"]], "hands": [], "market": []}
                 
-            obs_vec, reward, terminated, truncated, step_info = env.step(act_idx)
+            obs_vec, reward, terminated, truncated, step_info = env.step(act_dict)
             
         final_agent_money = env.money
         final_opp_money = env.opponent_money

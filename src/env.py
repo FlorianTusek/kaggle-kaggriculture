@@ -302,22 +302,26 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
 
         return money - start_money
 
-    def step(self, action_idx: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def step(self, action: Any) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         self.current_turn += 1
         day = self.current_turn // TURNS_PER_DAY
         hour = self.current_turn % TURNS_PER_DAY
 
-        # Decode action index for Gym step
-        act_name = ACTION_LOOKUP[action_idx] if 0 <= action_idx < len(ACTION_LOOKUP) else "PASS"
+        if isinstance(action, dict):
+            agent_action = action
+            act_repr = str(agent_action.get("farmer", [["PASS"]])[0])
+        elif isinstance(action, (int, np.integer)):
+            act_name = ACTION_LOOKUP[action] if 0 <= action < len(ACTION_LOOKUP) else "PASS"
+            agent_action = {"farmer": [[act_name]], "hands": [], "market": []}
+            act_repr = act_name
+        else:
+            agent_action = {"farmer": [["PASS"]], "hands": [], "market": []}
+            act_repr = "PASS"
 
-        # Construct action dict for player
-        my_obs = self._get_obs_dict(0)
-        agent_action = self.opponent_agent.act(my_obs)
-
-        # Run agent turn
+        # Run agent turn ONCE
         earned_this_turn = self.execute_agent_turn(agent_action, player_idx=0)
 
-        # Execute opponent turn
+        # Execute opponent turn ONCE
         opp_obs = self._get_obs_dict(1)
         opp_action = self.opponent_agent.act(opp_obs)
         self.execute_agent_turn(opp_action, player_idx=1)
@@ -344,10 +348,17 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
 
         self.obs = self._get_obs_dict(0)
         obs_vec = self._get_obs_vector(self.obs)
+
+        if isinstance(agent_action, dict):
+            farmer_ops = agent_action.get("farmer", [["PASS"]])
+            act_repr = farmer_ops[0][0] if (farmer_ops and isinstance(farmer_ops[0], list) and farmer_ops[0]) else str(farmer_ops[0])
+        else:
+            act_repr = str(agent_action)
+
         info = {
             "turn": self.current_turn,
             "money": self.money,
-            "action_executed": act_name,
+            "action_executed": act_repr,
             "earned": earned_this_turn
         }
 
