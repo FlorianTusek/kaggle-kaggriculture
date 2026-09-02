@@ -183,7 +183,12 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                 continue
             op = order[0]
 
-            if op == "BUY_LAND" and len(order) >= 2:
+            if op == "HIRE":
+                hire_cost = 50
+                if money >= hire_cost:
+                    money -= hire_cost
+
+            elif op == "BUY_LAND" and len(order) >= 2:
                 quad = order[1]
                 cost_map = {"NE": 1000, "SW": 2000, "SE": 4000}
                 cost = cost_map.get(quad, 1000)
@@ -197,7 +202,6 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                 cost = cost_map.get(animal, 300)
                 target_kind = "COOP" if animal == "GOOSE" else "PASTURE"
                 if money >= cost:
-                    # Find unpopulated structure tile
                     for row in tiles:
                         for tile in row:
                             if isinstance(tile, dict) and tile.get("kind") == target_kind and not tile.get("animal"):
@@ -225,7 +229,7 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                     price = self.market_prices.get(product, 30)
                     money += sell_qty * price
 
-        # 2. Process Worker Ops (Planting, Building, Harvesting)
+        # 2. Process Worker Ops (Planting, Building, Harvesting, Watering, Caring)
         farmer_op = action_dict.get("farmer", [])
         if farmer_op and isinstance(farmer_op, list):
             if isinstance(farmer_op[0], list):
@@ -246,9 +250,14 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                 continue
             cmd = op[0]
 
-            if cmd == "PLANT" and len(op) >= 2:
-                crop = op[1]
-                if seeds.get(crop, 0) > 0:
+            if cmd == "PLANT":
+                crop = op[1] if len(op) >= 2 and op[1] in seeds else None
+                if not crop:
+                    for c in ["MELON", "STRAWBERRY", "TOMATO", "CARROT", "WHEAT"]:
+                        if seeds.get(c, 0) > 0:
+                            crop = c
+                            break
+                if crop and seeds.get(crop, 0) > 0:
                     for y in range(BOARD_SIZE):
                         for x in range(BOARD_SIZE):
                             if tiles[y][x] is None:
@@ -264,6 +273,23 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                         else:
                             continue
                         break
+
+            elif cmd == "WATER":
+                for y in range(BOARD_SIZE):
+                    for x in range(BOARD_SIZE):
+                        t = tiles[y][x]
+                        if isinstance(t, dict) and t.get("kind") == "PLANT" and not t.get("watered_today"):
+                            t["watered_today"] = True
+                            break
+
+            elif cmd in ("FEED", "CARE"):
+                for y in range(BOARD_SIZE):
+                    for x in range(BOARD_SIZE):
+                        t = tiles[y][x]
+                        if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE") and t.get("animal"):
+                            t["fed_today"] = True
+                            t["cared_today"] = True
+                            break
 
             elif cmd == "BUILD_PASTURE":
                 for y in range(BOARD_SIZE):
@@ -335,18 +361,26 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
         return float(money + shed_val + seed_val + tile_val)
 
     def step(self, action: Any) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        self.current_turn += 1
-        day = self.current_turn // TURNS_PER_DAY
-        hour = self.current_turn % TURNS_PER_DAY
+        current_step = self.current_turn
+        hour = current_step % TURNS_PER_DAY
 
         start_wealth_0 = self._calculate_net_wealth(0)
 
         if isinstance(action, dict):
             agent_action = action
             act_repr = str(agent_action.get("farmer", [["PASS"]])[0])
-        elif isinstance(action, (int, np.integer)):
-            act_name = ACTION_LOOKUP[action] if 0 <= action < len(ACTION_LOOKUP) else "PASS"
-            # Generate baseline action template with market orders and hand jobs
+        else:
+            if isinstance(action, np.ndarray):
+                act_int = int(action.item() if action.ndim == 0 else action[0])
+            elif isinstance(action, (int, np.integer)):
+                act_int = int(action)
+            else:
+                try:
+                    act_int = int(action)
+                except Exception:
+                    act_int = 0
+
+            act_name = ACTION_LOOKUP[act_int] if 0 <= act_int < len(ACTION_LOOKUP) else "PASS"
             if not hasattr(self, "_base_executor"):
                 self._base_executor = KaggricultureAgent(policy={"use_ensemble": False, "use_ml_policy": False})
             obs_0 = self._get_obs_dict(0)
@@ -354,9 +388,6 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
             if act_name != "PASS":
                 agent_action["farmer"] = [[act_name]]
             act_repr = act_name
-        else:
-            agent_action = {"farmer": [["PASS"]], "hands": [], "market": []}
-            act_repr = "PASS"
 
         # Run agent turn ONCE
         earned_this_turn = self.execute_agent_turn(agent_action, player_idx=0)
@@ -391,10 +422,13 @@ class KaggricultureEnv(gym.Env if gym is not None else object):
                                 yield_mult = 4 if prod in ("MILK", "WOOL") else 3
                                 shed[prod] = shed.get(prod, 0) + yield_mult
 
+        # Advance step counter
+        self.current_turn += 1
+
         end_wealth_0 = self._calculate_net_wealth(0)
         wealth_delta = end_wealth_0 - start_wealth_0
 
-        # Step reward: incremental net wealth gain normalized + small action step bonus
+        # Step reward: incremental net wealth gain normalized
         reward = float(wealth_delta / 100.0)
 
         terminated = self.current_turn >= self.max_turns
