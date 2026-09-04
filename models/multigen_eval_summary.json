@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-09-01",
+  "generations_evaluated": 4,
+  "eval_results": [
+    {
+      "label": "Gen 00 (BC)",
+      "checkpoint": "D:\\DunderCode\\kaggle-kaggriculture\\models\\league\\gen_00_bc_init.zip",
+      "metrics": {
+        "mean_bank_vs_meta": 87352.5,
+        "win_rate_vs_meta": 0.0,
+        "mean_bank_vs_baseline": 3700.0,
+        "win_rate_vs_baseline": 0.0
+      }
+    },
+    {
+      "label": "Gen 01",
+      "checkpoint": "D:\\DunderCode\\kaggle-kaggriculture\\models\\league\\gen_01.zip",
+      "metrics": {
+        "mean_bank_vs_meta": 87352.5,
+        "win_rate_vs_meta": 0.0,
+        "mean_bank_vs_baseline": 3700.0,
+        "win_rate_vs_baseline": 0.0
+      }
+    },
+    {
+      "label": "Gen 02",
+      "checkpoint": "D:\\DunderCode\\kaggle-kaggriculture\\models\\league\\gen_02.zip",
+      "metrics": {
+        "mean_bank_vs_meta": 87352.5,
+        "win_rate_vs_meta": 0.0,
+        "mean_bank_vs_baseline": 3700.0,
+        "win_rate_vs_baseline": 0.0
+      }
+    },
+    {
+      "label": "Gen 03",
+      "checkpoint": "D:\\DunderCode\\kaggle-kaggriculture\\models\\league\\gen_03.zip",
+      "metrics": {
+        "mean_bank_vs_meta": 87352.5,
+        "win_rate_vs_meta": 0.0,
+        "mean_bank_vs_baseline": 3700.0,
+        "win_rate_vs_baseline": 0.0
+      }
+    }
+  ]
+}
