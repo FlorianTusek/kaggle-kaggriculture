@@ -131,6 +131,19 @@ class PPOPolicy:
         self.action_lookup = ACTION_LOOKUP
         self.feature_columns = FEATURE_COLUMNS
         
+        if os.name == "nt":
+            for torch_lib in [
+                r"C:\Python310\lib\site-packages\torch\lib",
+                r"C:\Python310\Lib\site-packages\torch\lib",
+                os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "Python", "Python310", "site-packages", "torch", "lib"),
+            ]:
+                if os.path.exists(torch_lib):
+                    try:
+                        os.add_dll_directory(torch_lib)
+                    except Exception:
+                        pass
+                    os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
+
         if os.path.exists(model_path):
             self.load_model(model_path)
 
@@ -138,7 +151,7 @@ class PPOPolicy:
         """Load PPO model from zip file."""
         try:
             from stable_baselines3 import PPO
-            self.model = PPO.load(model_path)
+            self.model = PPO.load(model_path, device="cpu")
             self.is_loaded = True
         except Exception as e:
             self.is_loaded = False
